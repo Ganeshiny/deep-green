@@ -176,8 +176,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-struc_dir', type=str, default='examples/structure_files', help='Directory containing cif files')
     parser.add_argument('-seqs', type=str, default='examples/predictions_seqs.fasta', help='FASTA file containing sequences')
-    parser.add_argument('-model_path', type=str, default="model_and_weight_files/best_model_3.pth", help='Path to the trained model weights')
-    parser.add_argument('-output', type=str, default='predictions.csv', help='Output CSV file for predictions')
+    parser.add_argument('-model_path', type=str, default="model_and_weight_files/best_model_2.pth", help='Path to the trained model weights')
+    parser.add_argument('-output', type=str, default='examples/predictions.csv', help='Output CSV file for predictions')
     parser.add_argument('-annot_dict', type=str, default='preprocessing/data/annot_dict.pkl', help='Path to the annotation dictionary')
     args = parser.parse_args()
     annot_dict = args.annot_dict
