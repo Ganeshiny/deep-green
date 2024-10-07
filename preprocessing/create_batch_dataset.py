@@ -6,6 +6,7 @@ import torch
 from torch_geometric.data import Data, Dataset
 from tqdm import tqdm
 from transformers import BertTokenizer, BertModel
+import pickle
 
 #Inializing here
 tokenizer = BertTokenizer.from_pretrained('Rostlab/prot_bert_bfd', do_lower_case=False )
@@ -49,8 +50,9 @@ def seq2protbert(seq):
     return np.array(features)
 
 class PDB_Dataset(Dataset):
-    def __init__(self, root, annot_file, num_shards=20, selected_ontology=None, transform=None, pre_transform=None, model = None):
-        annot_data = self.annot_file_reader(annot_file)
+    def __init__(self, root, annot_file, num_shards=20, selected_ontology=None, transform=None, pre_transform=None, model = None, annot_pkl_file = "preprocessing/data/annot_dict.pkl"):
+        self.annot_pkl_file = annot_pkl_file
+        annot_data = self.annot_file_reader(annot_file, self.annot_pkl_file)
         self.model = model
         self.prot2annot = annot_data[0]
         self.gonames = annot_data[2][selected_ontology]
@@ -64,7 +66,7 @@ class PDB_Dataset(Dataset):
         self.pre_transform = pre_transform
         super(PDB_Dataset, self).__init__(root, transform, pre_transform)
     
-    def annot_file_reader(self, annot_filename):
+    def annot_file_reader(self, annot_filename, output_filename):
         onts = ['molecular_function', 'biological_process', 'cellular_component']
         prot2annot = {}
         goterms = {ont: [] for ont in onts}
@@ -101,6 +103,18 @@ class PDB_Dataset(Dataset):
                     prot2annot[prot][onts[i]] = np.zeros(len(goterms[onts[i]]), dtype=np.int64)
                     prot2annot[prot][onts[i]][goterm_indices] = 1.0
                 prot_list.append(prot)
+
+            # Save the results to a file
+        output_data = {
+            'prot2annot': prot2annot,
+            'goterms': goterms,
+            'gonames': gonames,
+            'prot_list': prot_list
+        }
+        output_file = open(output_filename, 'wb')
+        pickle.dump(output_data, output_file)
+
+        print(f"Output saved to {output_filename}")
         return prot2annot, goterms, gonames, prot_list
 
     @property
@@ -184,7 +198,7 @@ class PDB_Dataset(Dataset):
         data = self._load_data(prot_id, self.prot2annot)
         return data
 
-'''
+
 # Device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print('Using device:', device)
@@ -197,5 +211,5 @@ num_shards = 20
 torch.manual_seed(12345)
 pdb_protBERT_dataset = PDB_Dataset(root, annot_file, num_shards=num_shards, selected_ontology="biological_process", model="protBERT")
 
-print(pdb_protBERT_dataset[0].x[0].shape)'''
+print(pdb_protBERT_dataset[0].x[0].shape)
 

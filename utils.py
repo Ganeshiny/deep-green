@@ -72,7 +72,7 @@ def read_seqs_file(seqs_file):
                 key  = line.strip().replace(">", "")
             else:
                 unknown_percentage = line.strip().count("X")/len(line.strip())
-                if unknown_percentage <= 0.8:
+                if unknown_percentage <= 0.2:
                     pdb2seq[key] = line.strip() 
                 #else:
                     #print(f"X character percentage of {pdb2seq[key]} is: ", unknown_percentage)
@@ -80,10 +80,10 @@ def read_seqs_file(seqs_file):
 
 def load_go_graph(fname):
     go_graph = obonet.read_obo(fname)
-    print(f"DEBUG: {go_graph}, and the number of nodes: {len(go_graph.nodes)}")
+    #print(f"DEBUG: {go_graph}, and the number of nodes: {len(go_graph.nodes)}")
     return go_graph
 
-def make_distance_maps(pdbfile, chain=None, sequence=None):
+def make_distance_maps(pdbfile, chain, sequence):
     print(sequence, chain)
     # Check if the file is gzipped
     if pdbfile.endswith('.gz'):
@@ -106,19 +106,34 @@ def cif2cmap(pdb, chain, seq, pdir):
     ca, cb = make_distance_maps(os.path.join(pdir, pdb + '.cif.gz'), chain=chain, sequence=seq)
     return ca[chain]['contact-map'], cb[chain]['contact-map']
 
-def write_annot_npz(prot, prot2seq, struct_dir):
-    pdb, chain = prot.split('_')
+def write_annot_npz(prot, prot2seq, struct_dir, is_csm=True):
+    print("Debug prot:", prot)
+    
+    if is_csm:
+        # pdb should be everything before the last underscore
+        pdb = '_'.join(prot.split('_')[:-1])
+        # chain should be the part after the last underscore
+        chain = prot.split('_')[-1]
+    else:
+        # In case `is_csm` is False, split `prot` normally
+        pdb, chain = prot.split('_')
+    
     tmp_dir = os.path.join(struct_dir, 'tmp_cmap_files')
 
     # Ensure the tmp_cmap_files directory exists
     os.makedirs(tmp_dir, exist_ok=True)
-
+    
     try:
+        print("Processing", pdb, chain)
+        # Call cif2cmap (assuming it's defined elsewhere in your code)
         A_ca, A_cb = cif2cmap(pdb, chain, prot2seq[prot], pdir=struct_dir)
+        
+        # Save the results in a compressed .npz file
         np.savez_compressed(os.path.join(tmp_dir, prot),
                             C_alpha=A_ca,
                             C_beta=A_cb,
-                            seqres=prot2seq[prot],
-                            )
+                            seqres=prot2seq[prot])
     except Exception as e:
-        print(e)
+        print("Exception occurred:", e)
+
+

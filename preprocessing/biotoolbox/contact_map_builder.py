@@ -92,7 +92,7 @@ class DistanceMapBuilder:
                 atom_seq   = chain['atom-seq']
 
                 alignment = aligner.align(seqres_seq, atom_seq)
-                print(type(alignment))
+                #print(type(alignment))
                 specific_alignment = next(alignment)
                 self.speak(f"Seqres seq: {seqres_seq}",
                            f"Atom seq:   {atom_seq}",
@@ -124,7 +124,7 @@ class DistanceMapBuilder:
                 mask = mask
                 aligned_atom_seq = query
 
-                print(aligned_atom_seq,aligned_seqres_seq,mask)
+                #print(aligned_atom_seq,aligned_seqres_seq,mask)
 
                 #print(f"aligned-seqres sequence: {aligned_seqres_seq}, aligned-atom-seq:{aligned_atom_seq}")
 
@@ -151,7 +151,7 @@ class DistanceMapBuilder:
                         candidate_residue = next((x for x in reindexed_residues[picked_residues:picked_residues + 5] if
                                                   correct_residue(x, current_aligned_atom_residue_letter)), None)
                         # print(f"candidate_residue:{candidate_residue}")
-                        print(f"DEBUG: \n {current_aligned_atom_residue_letter}\n {[x.resname for x in reindexed_residues[picked_residues:picked_residues+5]]}\n {candidate_residue}")
+                        #print(f"DEBUG: \n {current_aligned_atom_residue_letter}\n {[x.resname for x in reindexed_residues[picked_residues:picked_residues+5]]}\n {candidate_residue}")
                         if candidate_residue is None:
                             # The right answer is probably 'None' but we need to know why.
                             residue = reindexed_residues[picked_residues]

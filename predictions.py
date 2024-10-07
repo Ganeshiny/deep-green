@@ -11,6 +11,7 @@ from model import GCN
 from utils import write_seqs_from_cifdir, read_seqs_file, write_annot_npz
 import gc
 import json
+import pickle
 
 # Set device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -21,17 +22,20 @@ protbert_model = BertModel.from_pretrained('Rostlab/prot_bert_bfd')
 protbert_model.gradient_checkpointing_enable()  # Helps with memory usage
 protbert_model.to(device).eval()
 
+ontology = "biological_process"
+
+
 def seq2onehot(seq):
     """
     Convert sequence to one-hot encoding.
     """
-    print("seq: ", seq)
+    #print("seq: ", seq)
     chars = ['-', 'D', 'G', 'U', 'L', 'N', 'T', 'K', 'H', 'Y', 'W', 'C', 'P',
              'V', 'S', 'O', 'I', 'E', 'F', 'X', 'Q', 'A', 'B', 'Z', 'R', 'M']
     vocab_embed = {char: idx for idx, char in enumerate(chars)}
-    print("vocab embed: ", vocab_embed)
+    #print("vocab embed: ", vocab_embed)
     vocab_one_hot = np.eye(len(chars), dtype=int)
-    print("vocab_one_hot: ", vocab_one_hot)
+    #print("vocab_one_hot: ", vocab_one_hot)
 
     # Ensure `seq` is a string before iterating over it
     if isinstance(seq, np.ndarray):
@@ -73,33 +77,14 @@ def seq2protbert(seq):
 
     return np.array(features)
 
-def get_adjacency_info(dist_matrix, threshold=0.8):
-    """
-    Get adjacency info from a distance matrix based on a threshold.
-    Returns edge indices in sparse COO format.
-    """
-    # Check if dist_matrix is empty
-    if dist_matrix.size == 0:
-        print("Warning: Empty distance matrix.")
-        return torch.empty((2, 0), dtype=torch.long)  # Return an empty adjacency tensor
-
-    # Create adjacency matrix based on the threshold
-    adjacency_matrix = (dist_matrix <= threshold).astype(int)
-    np.fill_diagonal(adjacency_matrix, 0)  # Remove self-loops
-
-    # Get edge indices (where adjacency_matrix is 1)
+def get_adjacency_info(distance_matrix, threshold = 8.0):
+    adjacency_matrix = (distance_matrix <= threshold).astype(int)
+    #print(adjacency_matrix)
+    np.fill_diagonal(adjacency_matrix, 0)
     edge_indices = np.nonzero(adjacency_matrix)
-    
-    if len(edge_indices[0]) == 0:
-        # If no edges are found, return an empty tensor
-        print("Warning: No edges found in adjacency matrix.")
-        return torch.empty((2, 0), dtype=torch.long)
 
-    # Create COO format matrix
     coo_matrix = sp.coo_matrix((np.ones_like(edge_indices[0]), edge_indices))
-    
     return torch.tensor([coo_matrix.row, coo_matrix.col], dtype=torch.long)
-
 
 # Function to generate sequence file and contact maps
 def process_structures(struct_dir, sequence_file):
@@ -129,14 +114,13 @@ def process_structures(struct_dir, sequence_file):
     return True  # Indicate successful processing
 
 # Main prediction function with batch processing
-def run_predictions(struct_dir, model, output_file, batch_size=8):
+def run_predictions(struct_dir, model, output_file, gonames, goids, batch_size=8):
     npz_pdb_chains = glob.glob(os.path.join(struct_dir, 'tmp_cmap_files', '*.npz'))
     npz_pdb_chains = [Path(chain).stem for chain in npz_pdb_chains]
-
     # Open CSV to write predictions
     with open(output_file, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
-        writer.writerow(['PDB_ID', 'Predicted_GO_Labels'])
+        writer.writerow(['PDB_ID', 'GO_IDs', 'GO_Names'])
 
         # Process each protein in batches to reduce memory footprint
         for i in range(0, len(npz_pdb_chains), batch_size):
@@ -147,7 +131,7 @@ def run_predictions(struct_dir, model, output_file, batch_size=8):
 
                 ca_dist = data['C_alpha']
                 seq = data['seqres'].item()
-                print("This is the sequence", seq)
+                #print("This is the sequence", seq)
 
                 # One-hot encoding
                 onehot_features = torch.tensor(seq2onehot(seq), dtype=torch.float).to(device)
@@ -163,11 +147,24 @@ def run_predictions(struct_dir, model, output_file, batch_size=8):
                     # Ensure the sequence length is used properly
                     out = model(protbert_features, adjacency_info, torch.tensor([0] * len(seq), dtype=torch.long, device=device))
 
-                # Convert logits to probabilities
+                # Convert logits to probabilities and get predictions
                 pred = torch.sigmoid(out) > 0.5
 
-                # Save the results to CSV
-                writer.writerow([id, pred.cpu().numpy().tolist()])
+                # Extract indices where the prediction is True
+                true_indices = torch.nonzero(pred, as_tuple=False).squeeze().cpu().numpy()
+                third_indices = true_indices[:, 2]
+                print('Debug len',len(gonames))
+                for i in third_indices.tolist():
+                    print(i)
+                    #print(go_names[i])
+                go_names = [gonames[i] for i in third_indices.tolist()]
+                go_terms = [goids[i] for i in third_indices.tolist()]
+
+                # Save the PDB ID and the indices of the True predictions to CSV
+                writer.writerow([id, go_terms, go_names])
+
+                go_names = []
+                go_terms = []
 
                 # Cleanup memory
                 del onehot_features, protbert_features, adjacency_info, out, pred
@@ -179,9 +176,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-struc_dir', type=str, default='examples/structure_files', help='Directory containing cif files')
     parser.add_argument('-seqs', type=str, default='examples/predictions_seqs.fasta', help='FASTA file containing sequences')
-    parser.add_argument('-model_path', type=str, default="model_and_weight_files/best_model_2.pth", help='Path to the trained model weights')
+    parser.add_argument('-model_path', type=str, default="model_and_weight_files/best_model_3.pth", help='Path to the trained model weights')
     parser.add_argument('-output', type=str, default='predictions.csv', help='Output CSV file for predictions')
+    parser.add_argument('-annot_dict', type=str, default='preprocessing/data/annot_dict.pkl', help='Path to the annotation dictionary')
     args = parser.parse_args()
+    annot_dict = args.annot_dict
 
     struct_dir = args.struc_dir
     sequence_file = args.seqs
@@ -213,5 +212,14 @@ if __name__ == '__main__':
     # Step 4: Move the model to the GPU or CPU
     model.to(device).eval()
 
+    with open(annot_dict, 'rb') as input_file:
+        data = pickle.load(input_file)
+
+    prot2annot = data['prot2annot']
+    goterms = data['goterms']['biological_process']
+    gonames = data['gonames']['biological_process']
+    #print(gonames[ontology])
+    prot_list = data['prot_list']
+
     # Run predictions and save to CSV
-    run_predictions(struct_dir, model, args.output)
+    run_predictions(struct_dir, model, args.output, gonames, goterms)
