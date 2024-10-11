@@ -13,7 +13,7 @@ import json
 THRESHOLD = 0.5
 BATCH_SIZE = 64
 EPOCHS = 60
-BEST_MODEL_PATH = 'model_and_weight_files/best_model_2.pth'
+BEST_MODEL_PATH = f'model_and_weight_files/model_weights_{EPOCHS}_epochs_{BATCH_SIZE}_batch_size.pth'
 PATH = "model_and_weight_files/model.pth"
 CLASS_WEIGHT_PATH = "model_and_weight_files/alpha_weights.pkl"
 MODEL_INFO_PATH = "model_and_weight_files/model_info.json"  # Path to save model info
@@ -40,9 +40,10 @@ train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
 # Calculate alpha
-alpha = calculate_class_weights(dataset, device)
+#alpha = calculate_class_weights(dataset, device)
 #save_alpha_weights(alpha, CLASS_WEIGHT_PATH)
-load_alpha_weights(CLASS_WEIGHT_PATH)
+#alpha = load_alpha_weights(CLASS_WEIGHT_PATH)
+print(f"Alpha weights:{alpha}")
 
 # Model Setup
 input_size = len(pdb_protBERT_dataset[0].x[0])

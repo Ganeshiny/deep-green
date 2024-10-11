@@ -152,13 +152,20 @@ def run_predictions(struct_dir, model, output_file, gonames, goids, batch_size=8
 
                 # Extract indices where the prediction is True
                 true_indices = torch.nonzero(pred, as_tuple=False).squeeze().cpu().numpy()
-                third_indices = true_indices[:, 2]
-                print('Debug len',len(gonames))
-                for i in third_indices.tolist():
-                    print(i)
-                    #print(go_names[i])
-                go_names = [gonames[i] for i in third_indices.tolist()]
-                go_terms = [goids[i] for i in third_indices.tolist()]
+
+                # Check if true_indices is non-empty and has the expected number of dimensions
+                if true_indices.ndim == 2 and true_indices.shape[1] >= 3:
+                    third_indices = true_indices[:, 2]
+                    print('Debug len', len(gonames))
+                    for i in third_indices.tolist():
+                        print(i)
+                    go_names = [gonames[i] for i in third_indices.tolist()]
+                    go_terms = [goids[i] for i in third_indices.tolist()]
+                else:
+                    # Handle cases where true_indices doesn't have enough dimensions
+                    print(f"Unexpected true_indices shape: {true_indices.shape}")
+                    go_names = []
+                    go_terms = []
 
                 # Save the PDB ID and the indices of the True predictions to CSV
                 writer.writerow([id, go_terms, go_names])
@@ -176,7 +183,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-struc_dir', type=str, default='examples/structure_files', help='Directory containing cif files')
     parser.add_argument('-seqs', type=str, default='examples/predictions_seqs.fasta', help='FASTA file containing sequences')
-    parser.add_argument('-model_path', type=str, default="model_and_weight_files/best_model_2.pth", help='Path to the trained model weights')
+    parser.add_argument('-model_path', type=str, default="model_and_weight_files/model_weights_60_epochs_64_batch_size.pth", help='Path to the trained model weights')
     parser.add_argument('-output', type=str, default='examples/predictions.csv', help='Output CSV file for predictions')
     parser.add_argument('-annot_dict', type=str, default='preprocessing/data/annot_dict.pkl', help='Path to the annotation dictionary')
     args = parser.parse_args()
