@@ -5,12 +5,12 @@ import numpy as np
 import torch.nn.functional as F
 
 class FocalLoss(nn.Module):
-    def __init__(self, alpha=1, gamma=2, logits=True, reduction='mean'):
+    def __init__(self, alpha = None, gamma=4, logits=True, reduction='mean'):
         super(FocalLoss, self).__init__()
-        self.alpha = alpha 
-        self.gamma = gamma
-        self.logits = logits
-        self.reduction = reduction
+        self.alpha = alpha # Controls strenth of loss - Balances positive/negative classes
+        self.gamma = gamma # Higher values penalize easy examples more
+        self.logits = logits # Logit - True means its a raw score
+        self.reduction = reduction # How to aggregate losses across batches
 
     def forward(self, inputs, targets):
         if self.logits:
@@ -19,7 +19,8 @@ class FocalLoss(nn.Module):
             BCE_loss = F.binary_cross_entropy(inputs, targets, reduction='none')
 
         # calculate the focal loss components
-        p_t = torch.exp(-BCE_loss)
+        p_t = torch.exp(-BCE_loss) # Calculates the predicted probabilities based of BCE loss
+        #High p_t - model is mostly corrent, low p_t model is wrong
         focal_loss = self.alpha * (1 - p_t)**self.gamma * BCE_loss
 
         if self.reduction == 'mean':
@@ -28,3 +29,4 @@ class FocalLoss(nn.Module):
             return focal_loss.sum()
         else:
             return focal_loss
+

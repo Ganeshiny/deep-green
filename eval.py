@@ -29,7 +29,7 @@ input_size = len(dataset[0].x[0])
 hidden_sizes = [1000, 912, 820]
 output_size = pdb_protBERT_dataset.num_classes
 model = GCN(input_size, hidden_sizes, output_size)
-model.load_state_dict(torch.load('best_model_2.pth'))
+model.load_state_dict(torch.load('model_and_weight_files/model_weights_60_epochs_64_batch_size.pth'))
 model.to(device)
 model.eval()
 
