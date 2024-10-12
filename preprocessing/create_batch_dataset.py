@@ -212,4 +212,3 @@ torch.manual_seed(12345)
 pdb_protBERT_dataset = PDB_Dataset(root, annot_file, num_shards=num_shards, selected_ontology="biological_process", model="protBERT")
 
 print(pdb_protBERT_dataset[0].x[0].shape)
-
