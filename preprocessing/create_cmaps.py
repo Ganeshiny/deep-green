@@ -26,7 +26,7 @@ def make_distance_maps(pdbfile, chain=None, sequence=None):
     mapper = DistanceMapBuilder(atom="CA", glycine_hack=-1)  
     ca = mapper.generate_map_for_pdb(structure_container)
     cb = mapper.set_atom("CB").generate_map_for_pdb(structure_container)
-
+    
     return ca.chains, cb.chains
 
 def load_GO_annot(filename):
