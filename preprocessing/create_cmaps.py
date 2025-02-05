@@ -74,10 +74,10 @@ def write_annot_npz(prot, prot2seq, struct_dir):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('-annot', type=str, default='./preprocessing/data/pdb2go.tsv', help="Input file (*.tsv) with preprocessed annotations.")
-    parser.add_argument('-seqs', type=str, default='./preprocessing/data/pdb2sequences.fasta', help="PDB chain seqres fasta.")
-    parser.add_argument('-num_threads', type=int, default=20, help="Number of threads (CPUs) to use in the computation.")
-    parser.add_argument('-struc_dir', type=str, default='./preprocessing/data/structure_files', help='Directory containing cif files')
+    parser.add_argument('-annot', type=str, default='/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/pdb2go.tsv', help="Input file (*.tsv) with preprocessed annotations.")
+    parser.add_argument('-seqs', type=str, default='/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/seqs_from_structure_dir.fasta', help="PDB chain seqres fasta.")
+    parser.add_argument('-num_threads', type=int, default=50, help="Number of threads (CPUs) to use in the computation.")
+    parser.add_argument('-struc_dir', type=str, default='/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/structure_files', help='Directory containing cif files')
 
     args = parser.parse_args()
     struct_dir = args.struc_dir

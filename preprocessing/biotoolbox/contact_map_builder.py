@@ -311,7 +311,7 @@ class DistanceMapBuilder:
 
     def __calc_dist_matrix(self, chain_one):
         """Returns a matrix of C-alpha distances between two chains"""
-        answer = np.zeros((len(chain_one), len(chain_one)), np.float)
+        answer = np.zeros((len(chain_one), len(chain_one)), dtype = float)
         for row, residue_one in enumerate(chain_one):
             for col, residue_two in enumerate(chain_one[row:], start=row):
                 if col >= len(chain_one):

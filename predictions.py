@@ -7,14 +7,16 @@ import glob
 import csv
 from transformers import BertTokenizer, BertModel
 import scipy.sparse as sp
-from model import GCN
+from model import GCN, RareLabelGNN
 from utils import write_seqs_from_cifdir, read_seqs_file, write_annot_npz
 import gc
 import json
 import pickle
+BASE_PATH = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor"
 
 # Set device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+threshold = 0.45
 
 # Load ProtBERT model and tokenizer with gradient checkpointing for memory efficiency
 tokenizer = BertTokenizer.from_pretrained('Rostlab/prot_bert_bfd', do_lower_case=False)
@@ -23,6 +25,33 @@ protbert_model.gradient_checkpointing_enable()  # Helps with memory usage
 protbert_model.to(device).eval()
 
 ontology = "biological_process"
+
+# Dictionaries for residue properties
+HYDROPHOBICITY = {
+    'A': 1.8, 'R': -4.5, 'N': -3.5, 'D': -3.5, 'C': 2.5,
+    'Q': -3.5, 'E': -3.5, 'G': -0.4, 'H': -3.2, 'I': 4.5,
+    'L': 3.8, 'K': -3.9, 'M': 1.9, 'F': 2.8, 'P': -1.6,
+    'S': -0.8, 'T': -0.7, 'W': -0.9, 'Y': -1.3, 'V': 4.2
+}
+
+POLARITY = {
+    'A': 0, 'R': 1, 'N': 1, 'D': 1, 'C': 0, 'Q': 1, 'E': 1,
+    'G': 0, 'H': 1, 'I': 0, 'L': 0, 'K': 1, 'M': 0, 'F': 0,
+    'P': 0, 'S': 1, 'T': 1, 'W': 0, 'Y': 1, 'V': 0
+}
+
+CHARGE = {
+    'A': 0, 'R': 1, 'N': 0, 'D': -1, 'C': 0, 'Q': 0, 'E': -1,
+    'G': 0, 'H': 1, 'I': 0, 'L': 0, 'K': 1, 'M': 0, 'F': 0,
+    'P': 0, 'S': 0, 'T': 0, 'W': 0, 'Y': 0, 'V': 0
+}
+
+def compute_residue_features(sequence):
+    """Compute residue-level features: hydrophobicity, polarity, and charge."""
+    hydrophobicity = [HYDROPHOBICITY.get(res, 0) for res in sequence]
+    polarity = [POLARITY.get(res, 0) for res in sequence]
+    charge = [CHARGE.get(res, 0) for res in sequence]
+    return hydrophobicity, polarity, charge
 
 
 def seq2onehot(seq):
@@ -137,7 +166,16 @@ def run_predictions(struct_dir, model, output_file, gonames, goids, batch_size=8
                 onehot_features = torch.tensor(seq2onehot(seq), dtype=torch.float).to(device)
 
                 # ProtBERT embeddings
-                protbert_features = torch.tensor(seq2protbert(seq), dtype=torch.float).to(device)
+                protbert_features = torch.tensor(seq2protbert(seq), dtype=torch.float).to(device).squeeze(0)
+
+                # Compute additional features (hydrophobicity, polarity, charge)
+                hydrophobicity, polarity, charge = compute_residue_features(seq)
+                additional_features = torch.tensor(
+                    np.stack([hydrophobicity, polarity, charge], axis=1),
+                    dtype=torch.float
+                ).to(device)
+
+                node_features = torch.cat([protbert_features, additional_features], dim=1)
 
                 # Get adjacency info (move adjacency_info to the same device)
                 adjacency_info = get_adjacency_info(ca_dist).to(device)
@@ -145,27 +183,24 @@ def run_predictions(struct_dir, model, output_file, gonames, goids, batch_size=8
                 # Pass the data to the model
                 with torch.no_grad():  # No need to compute gradients during inference
                     # Ensure the sequence length is used properly
-                    out = model(protbert_features, adjacency_info, torch.tensor([0] * len(seq), dtype=torch.long, device=device))
+                    out = model(node_features, adjacency_info, torch.tensor([0] * len(seq), dtype=torch.long, device=device))
 
                 # Convert logits to probabilities and get predictions
-                pred = torch.sigmoid(out) > 0.5
+                pred = torch.sigmoid(out) > threshold 
 
-                # Extract indices where the prediction is True
-                true_indices = torch.nonzero(pred, as_tuple=False).squeeze().cpu().numpy()
+                true_indices = torch.nonzero(pred, as_tuple=False).cpu().numpy()  # Remove squeeze
 
-                # Check if true_indices is non-empty and has the expected number of dimensions
-                if true_indices.ndim == 2 and true_indices.shape[1] >= 3:
-                    third_indices = true_indices[:, 2]
-                    print('Debug len', len(gonames))
-                    for i in third_indices.tolist():
-                        print(i)
-                    go_names = [gonames[i] for i in third_indices.tolist()]
-                    go_terms = [goids[i] for i in third_indices.tolist()]
+                # Check if true_indices is valid and extract class indices
+                if true_indices.ndim == 2 and true_indices.shape[1] >= 2:
+                    # Assume second column contains class indices for 2D pred
+                    class_indices = true_indices[:, 1]  # Adjust based on pred shape
+                    go_names = [gonames[i] for i in class_indices.tolist()]
+                    go_terms = [goids[i] for i in class_indices.tolist()]
                 else:
-                    # Handle cases where true_indices doesn't have enough dimensions
                     print(f"Unexpected true_indices shape: {true_indices.shape}")
                     go_names = []
                     go_terms = []
+
 
                 # Save the PDB ID and the indices of the True predictions to CSV
                 writer.writerow([id, go_terms, go_names])
@@ -181,11 +216,11 @@ def run_predictions(struct_dir, model, output_file, gonames, goids, batch_size=8
 # Main script
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('-struc_dir', type=str, default='examples/structure_files', help='Directory containing cif files')
-    parser.add_argument('-seqs', type=str, default='examples/predictions_seqs.fasta', help='FASTA file containing sequences')
-    parser.add_argument('-model_path', type=str, default="model_and_weight_files/model_weights_60_epochs_64_batch_size.pth", help='Path to the trained model weights')
-    parser.add_argument('-output', type=str, default='examples/predictions.csv', help='Output CSV file for predictions')
-    parser.add_argument('-annot_dict', type=str, default='preprocessing/data/annot_dict.pkl', help='Path to the annotation dictionary')
+    parser.add_argument('-struc_dir', type=str, default=f'{BASE_PATH}/examples/structure_files', help='Directory containing cif files')
+    parser.add_argument('-seqs', type=str, default=f'{BASE_PATH}/examples/predictions_seqs.fasta', help='FASTA file containing sequences')
+    parser.add_argument('-model_path', type=str, default=f"/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/model_weights_200_epochs_128_2_layers_cross.pth", help='Path to the trained model weights')
+    parser.add_argument('-output', type=str, default=f'{BASE_PATH}/examples/predictions15.csv', help='Output CSV file for predictions')
+    parser.add_argument('-annot_dict', type=str, default=f'{BASE_PATH}/preprocessing/data/annot_dict.pkl', help='Path to the annotation dictionary')
     args = parser.parse_args()
     annot_dict = args.annot_dict
 
@@ -198,7 +233,7 @@ if __name__ == '__main__':
     # Load GCN model
     model = torch.load(args.model_path)
     # Path to the model info JSON file
-    MODEL_INFO_PATH = "model_and_weight_files/model_info.json"
+    MODEL_INFO_PATH = f"{BASE_PATH}/model_and_weight_files/model_info_2_layers.json"
 
     # Step 1: Load the model information from the JSON file
     with open(MODEL_INFO_PATH, 'r') as f:
