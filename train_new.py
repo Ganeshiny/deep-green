@@ -95,10 +95,15 @@ output_size = pdb_protBERT_dataset_train.num_classes
 
 model = GCN(input_size, hidden_sizes, output_size).to(device)
 
-alpha_train = calculate_class_weights(pdb_protBERT_dataset_train, device)
-save_alpha_weights(alpha_train, CLASS_WEIGHT_PATH)
+#alpha_train = calculate_class_weights(pdb_protBERT_dataset_train, device)
+#save_alpha_weights(alpha_train, CLASS_WEIGHT_PATH)
 alpha = load_alpha_weights(CLASS_WEIGHT_PATH)
 print(f"Alpha weights:{alpha}")
+
+# Replace inf with maximum finite value
+max_finite = alpha[alpha != float('inf')].max().item()
+alpha[alpha == float('inf')] = max_finite
+print(f"Cleaned Alpha weights: {alpha}")
 
 criterion = FocalLoss(alpha=alpha, gamma=3)
 optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
