@@ -6,8 +6,6 @@ from Bio.PDB.MMCIFParser import MMCIFParser
 import gzip
 from Bio.SeqUtils import seq1
 import obonet
-from preprocessing.biotoolbox.structure_file_reader import build_structure_container_for_pdb
-from preprocessing.biotoolbox.contact_map_builder import DistanceMapBuilder
 import numpy as np
 import argparse
 import glob
@@ -64,55 +62,59 @@ def write_seqs_from_cifdir(dirpath, fname):
             seqs_file.write(f">{key}\n{chain_dir[key]}\n")
     return seqs_file
 
-def read_seqs_file(seqs_file):
-    pdb2seq = {}
-    with open(seqs_file, "r") as fasta_handle:
-        for line in fasta_handle:
-            if ">" in line:
-                key  = line.strip().replace(">", "")
-            else:
-                unknown_percentage = line.strip().count("X")/len(line.strip())
-                if unknown_percentage <= 0.2:
-                    pdb2seq[key] = line.strip() 
-                #else:
-                    #print(f"X character percentage of {pdb2seq[key]} is: ", unknown_percentage)
-    return pdb2seq
+def make_distance_maps(file_path):
+    """
+    Reads a compressed .cif.gz file and extracts atomic coordinates.
+    
+    Args:
+        file_path (str): Path to the .cif.gz file.
+    
+    Returns:
+        dict: A dictionary where keys are chain IDs and values contain:
+              - 'C_alpha': Distance matrix for alpha carbons (Cα)
+              - 'C_beta': Distance matrix for beta carbons (Cβ)
+    """
+    # Load the CIF file using Bio.PDB
+    with gzip.open(file_path, 'rt') as f:
+        parser = MMCIFParser(QUIET=True)
+        structure = parser.get_structure("protein", f)
+    
+    distance_matrices = {}
 
-def load_go_graph(fname):
-    go_graph = obonet.read_obo(fname)
-    #print(f"DEBUG: {go_graph}, and the number of nodes: {len(go_graph.nodes)}")
-    return go_graph
+    for model in structure:  # Usually only one model in PDB/MMCIF files
+        for chain in model:
+            chain_id = chain.id
+            ca_coords, cb_coords = [], []
 
-def make_distance_maps(pdbfile, chain, sequence):
-    print(sequence, chain)
-    # Check if the file is gzipped
-    if pdbfile.endswith('.gz'):
-        with gzip.open(pdbfile, 'rt') as handle:  # 'rt' mode opens as text
-            structure_data = handle.read()
-    else:
-        with open(pdbfile, 'r') as handle:
-            structure_data = handle.read()
+            for residue in chain:
+                if 'CA' in residue:
+                    ca_coords.append(residue['CA'].coord)
+                if 'CB' in residue:  # Cβ exists in all residues except Glycine
+                    cb_coords.append(residue['CB'].coord)
+                else:
+                    cb_coords.append(residue['CA'].coord)  # Use Cα for Glycine
 
-    structure_container = build_structure_container_for_pdb(structure_data, chain).with_seqres(sequence)
-    print(sequence, chain)
+            # Convert lists to NumPy arrays
+            ca_coords = np.array(ca_coords)
+            cb_coords = np.array(cb_coords)
 
-    mapper = DistanceMapBuilder(atom="CA", glycine_hack=-1)  
-    ca = mapper.generate_map_for_pdb(structure_container)
-    cb = mapper.set_atom("CB").generate_map_for_pdb(structure_container)
+            # Compute pairwise Euclidean distance matrices
+            ca_dist_map = np.linalg.norm(ca_coords[:, None, :] - ca_coords[None, :, :], axis=-1)
+            cb_dist_map = np.linalg.norm(cb_coords[:, None, :] - cb_coords[None, :, :], axis=-1)
 
-    return ca.chains, cb.chains
+            distance_matrices[chain_id] = {
+                "C_alpha": ca_dist_map,
+                "C_beta": cb_dist_map
+            }
 
-def cif2cmap(pdb, chain, seq, pdir):
-    ca, cb = make_distance_maps(os.path.join(pdir, pdb + '.cif.gz'), chain=chain, sequence=seq)
-    return ca[chain]['contact-map'], cb[chain]['contact-map']
+    return distance_matrices
+
+def cif2cmap(pdb, chain, pdir):
+    distance_matrices = make_distance_maps(os.path.join(pdir, pdb + '.cif.gz'))
+    return distance_matrices[chain]['C_alpha'], distance_matrices[chain]['C_beta']
 
 def write_annot_npz(prot, prot2seq, struct_dir, is_csm=True):
     print("Debug prot:", prot)
-
-    if len(prot.split('_')) > 1:
-        is_csm = True
-    else:
-        is_csm = False
     
     if is_csm:
         # pdb should be everything before the last underscore
@@ -140,5 +142,25 @@ def write_annot_npz(prot, prot2seq, struct_dir, is_csm=True):
                             seqres=prot2seq[prot])
     except Exception as e:
         print("Exception occurred:", e)
+
+
+def read_seqs_file(seqs_file):
+    pdb2seq = {}
+    with open(seqs_file, "r") as fasta_handle:
+        for line in fasta_handle:
+            if ">" in line:
+                key  = line.strip().replace(">", "")
+            else:
+                unknown_percentage = line.strip().count("X")/len(line.strip())
+                if unknown_percentage <= 0.2:
+                    pdb2seq[key] = line.strip() 
+                #else:
+                    #print(f"X character percentage of {pdb2seq[key]} is: ", unknown_percentage)
+    return pdb2seq
+
+def load_go_graph(fname):
+    go_graph = obonet.read_obo(fname)
+    #print(f"DEBUG: {go_graph}, and the number of nodes: {len(go_graph.nodes)}")
+    return go_graph
 
 

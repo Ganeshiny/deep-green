@@ -218,8 +218,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-struc_dir', type=str, default=f'{BASE_PATH}/examples/structure_files', help='Directory containing cif files')
     parser.add_argument('-seqs', type=str, default=f'{BASE_PATH}/examples/predictions_seqs.fasta', help='FASTA file containing sequences')
-    parser.add_argument('-model_path', type=str, default=f"/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/model_weights_200_epochs_128_2_layers_cross.pth", help='Path to the trained model weights')
-    parser.add_argument('-output', type=str, default=f'{BASE_PATH}/examples/predictions15.csv', help='Output CSV file for predictions')
+    parser.add_argument('-model_path', type=str, default=f"/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/best_model.pth", help='Path to the trained model weights')
+    parser.add_argument('-output', type=str, default=f'{BASE_PATH}/examples/predictionsss.csv', help='Output CSV file for predictions')
     parser.add_argument('-annot_dict', type=str, default=f'{BASE_PATH}/preprocessing/data/annot_dict.pkl', help='Path to the annotation dictionary')
     args = parser.parse_args()
     annot_dict = args.annot_dict

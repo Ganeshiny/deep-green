@@ -69,16 +69,17 @@ def seq2protbert(seq):
 def read_list_file(filename):
     """Read list of PDB IDs from a file."""
     with open(filename, "r") as file:
-        return [line.strip().replace("-", "_") for line in file.readlines()]
+        return [line.strip() for line in file.readlines()]
 
 class PDB_Dataset(Dataset):
-    def __init__(self, root, annot_file, num_shards=20, selected_ontology=None, transform=None, pre_transform=None, model="protBERT", pdb_split_set_file=None):
+    def __init__(self, root, annot_file, num_shards=20, selected_ontology=None, transform=None, pre_transform=None, model="protBERT", pdb_split_set_file=None, dataset_type = None):
         self.model = model
         self.npz_dir = root
         self.num_shards = num_shards
         self.selected_ontology = selected_ontology
         self.transform = transform
         self.pre_transform = pre_transform
+        self.dataset_type = dataset_type
 
         # Read annotation data
         self.prot2annot, self.goterms, self.gonames, self.prot_list = self.annot_file_reader(annot_file)
@@ -110,7 +111,7 @@ class PDB_Dataset(Dataset):
 
             next(reader, None)  # Skip headers
             for row in reader:
-                prot = row[0].replace("-", "_")  # Ensure ID format consistency
+                prot = row[0]  # Ensure ID format consistency
                 prot2annot[prot] = {ont: np.zeros(len(goterms[ont]), dtype=np.int64) for ont in onts}
                 for i, ont in enumerate(onts):
                     goterm_indices = [goterms[ont].index(goterm) for goterm in row[i+1].split(',') if goterm]
@@ -137,11 +138,11 @@ class PDB_Dataset(Dataset):
             data = self._load_data(prot_id)
             if data:
                 data_list.append(data)
-                torch.save(data, os.path.join(self.processed_dir, f'data_{index}.pt'))
+                torch.save(data, os.path.join(self.processed_dir, f'data_{self.dataset_type}_{index}.pt'))
         return data_list
 
     def _load_data(self, prot_id):
-        pdb_file = os.path.join(self.npz_dir, f'{prot_id.replace("-", "_")}.npz')
+        pdb_file = os.path.join(self.npz_dir, f'{prot_id}.npz')
         if not os.path.isfile(pdb_file):
             print(f" File not found: {pdb_file}")
             return None
@@ -188,27 +189,27 @@ class PDB_Dataset(Dataset):
         return self._load_data(self.pdb_split_list[idx])
 
 
-'''# Device
+# Device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print('Using device:', device)
 
 root = '/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/structure_files/tmp_cmap_files'
-annot_file = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachintha data/nrPDB-GO_2025.02.04_annot.tsv"
+annot_file = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachinthadata/_annot.tsv"
 num_shards = 20
 
-test_file = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachintha data/nrPDB-GO_2025.02.04_test.txt"
-train_file = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachintha data/nrPDB-GO_2025.02.04_train.txt"
-valid_file = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachintha data/nrPDB-GO_2025.02.04_valid.txt"
+test_file = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachinthadata/_test.txt"
+train_file = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachinthadata/_train.txt"
+valid_file = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachinthadata/_valid.txt"
 
 torch.manual_seed(12345)
-pdb_protBERT_dataset_test = PDB_Dataset(root=root, annot_file=annot_file, num_shards=num_shards, selected_ontology="biological_process", transform=None, pre_transform=None, model="protBERT", pdb_split_set_file=test_file)
-pdb_protBERT_dataset_train = PDB_Dataset(root=root, annot_file=annot_file, num_shards=num_shards, selected_ontology="biological_process", transform=None, pre_transform=None, model ="protBERT", pdb_split_set_file=train_file)
-pdb_protBERT_dataset_valid = PDB_Dataset(root=root, annot_file=annot_file, num_shards=num_shards, selected_ontology="biological_process", transform=None, pre_transform=None, model="protBERT",  pdb_split_set_file=valid_file)
+pdb_protBERT_dataset_test = PDB_Dataset(root=root, annot_file=annot_file, num_shards=num_shards, selected_ontology="biological_process", transform=None, pre_transform=None, model="protBERT", pdb_split_set_file=test_file, dataset_type = "test")
+pdb_protBERT_dataset_train = PDB_Dataset(root=root, annot_file=annot_file, num_shards=num_shards, selected_ontology="biological_process", transform=None, pre_transform=None, model ="protBERT", pdb_split_set_file=train_file, dataset_type = "train")
+pdb_protBERT_dataset_valid = PDB_Dataset(root=root, annot_file=annot_file, num_shards=num_shards, selected_ontology="biological_process", transform=None, pre_transform=None, model="protBERT",  pdb_split_set_file=valid_file, dataset_type = "valid")
 
 print(f"Train: {len(pdb_protBERT_dataset_train)}, Test: {len(pdb_protBERT_dataset_test)}, Valid: {len(pdb_protBERT_dataset_valid)}")
 print(len(pdb_protBERT_dataset_train), len(pdb_protBERT_dataset_valid[0].x[0]), pdb_protBERT_dataset_train.num_classes, pdb_protBERT_dataset_valid.num_classes)
 # Paths to save the datasets
-dataset_save_path = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachintha data/pdb_datasets.pkl"
+dataset_save_path = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachinthadata/datasets.pkl"
 
 # Save datasets to a pickle file
 with open(dataset_save_path, 'wb') as f:
@@ -218,4 +219,4 @@ with open(dataset_save_path, 'wb') as f:
         'valid': pdb_protBERT_dataset_valid
     }, f)
 
-print(f"Datasets saved to {dataset_save_path}")'''
+print(f"Datasets saved to {dataset_save_path}")
