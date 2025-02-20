@@ -1,7 +1,7 @@
 import torch
 from preprocessing.create_batch_dataset import PDB_Dataset
 from torch_geometric.loader import DataLoader
-from model import GCN
+from model import GCN, RareLabelGNN
 from sklearn.model_selection import train_test_split
 import numpy as np
 from focal_loss import FocalLoss
@@ -11,13 +11,13 @@ import json
 
 # Constants
 THRESHOLD = 0.5
-BATCH_SIZE = 64
-EPOCHS = 120
-LEARNING_RATE = 0.0001 
-BEST_MODEL_PATH = f'model_and_weight_files/model_weights_{EPOCHS}_epochs_{BATCH_SIZE}_5_layers.pth'
+BATCH_SIZE = 32
+EPOCHS = 500
+LEARNING_RATE = 0.000001 
+BEST_MODEL_PATH = f'model_and_weight_files/model_weights_{EPOCHS}_epochs_{BATCH_SIZE}_2_layers_cross.pth'
 PATH = "model_and_weight_files/model.pth"
 CLASS_WEIGHT_PATH = "model_and_weight_files/alpha_weights.pkl"
-MODEL_INFO_PATH = "model_and_weight_files/model_info_5_layers.json"  # Path to save model info
+MODEL_INFO_PATH = "model_and_weight_files/model_info_2_layers.json"  # Path to save model info
 
 # Device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -48,9 +48,9 @@ print(f"Alpha weights:{alpha}")
 
 # Model Setup
 input_size = len(pdb_protBERT_dataset[0].x[0])
-hidden_sizes = [1000, 912, 820, 500, 300]
+hidden_sizes = [1024, 912]#[1024, 512]
 output_size = pdb_protBERT_dataset.num_classes
-model = GCN(input_size, hidden_sizes, output_size)
+model = RareLabelGNN(input_size, hidden_sizes, output_size)
 model.to(device)
 
 model_info = {
@@ -66,17 +66,27 @@ torch.save(model.state_dict(), PATH)
 
 # Criterion and Optimizer
 criterion = FocalLoss(alpha=alpha)
-optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.01)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=10)
+
+# Accumulate gradients over multiple smaller batches
+accumulation_steps = 4  # Accumulate over 4 smaller batches
 
 def train():
     model.train()
-    for data in train_loader:
+    optimizer.zero_grad()  # Reset gradients
+    for i, data in enumerate(train_loader):
         data = data.to(device)
-        out = model(data.x, data.edge_index, data.batch)  # Logits
-        loss = criterion(out, data.y.float())  # Compute multilabel binary loss
+        out = model(data.x, data.edge_index, data.batch)
+        loss = criterion(out, data.y.float())
+        loss = loss / accumulation_steps  # Scale loss
         loss.backward()
-        optimizer.step()
-        optimizer.zero_grad()
+
+        # Perform optimizer step every accumulation_steps batches
+        if (i + 1) % accumulation_steps == 0:
+            optimizer.step()
+            optimizer.zero_grad()
+
 
 def test(loader):
     model.eval()
@@ -95,10 +105,17 @@ def test(loader):
 best_test_acc = 0
 
 for epoch in range(1, EPOCHS + 1):
+    # Train the model for one epoch
     train()
+    
+    # Evaluate the model
     train_acc = test(train_loader)
     test_acc = test(test_loader)
     
+    # Scheduler step based on test accuracy (or loss)
+    scheduler.step(1 - test_acc)  # For accuracy, pass `1 - test_acc` (higher is better)
+    # If monitoring test loss instead, pass the actual test loss
+
     # Save the model if test accuracy improves
     if test_acc > best_test_acc:
         best_test_acc = test_acc
@@ -106,3 +123,4 @@ for epoch in range(1, EPOCHS + 1):
         print(f"Best model saved with Test Acc: {test_acc:.4f}")
     
     print(f'Epoch: {epoch:03d}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}')
+

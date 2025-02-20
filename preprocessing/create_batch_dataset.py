@@ -14,6 +14,34 @@ model = BertModel.from_pretrained('Rostlab/prot_bert_bfd')
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 model.to(device).eval()
 
+# Dictionaries for residue properties
+HYDROPHOBICITY = {
+    'A': 1.8, 'R': -4.5, 'N': -3.5, 'D': -3.5, 'C': 2.5,
+    'Q': -3.5, 'E': -3.5, 'G': -0.4, 'H': -3.2, 'I': 4.5,
+    'L': 3.8, 'K': -3.9, 'M': 1.9, 'F': 2.8, 'P': -1.6,
+    'S': -0.8, 'T': -0.7, 'W': -0.9, 'Y': -1.3, 'V': 4.2
+}
+
+POLARITY = {
+    'A': 0, 'R': 1, 'N': 1, 'D': 1, 'C': 0, 'Q': 1, 'E': 1,
+    'G': 0, 'H': 1, 'I': 0, 'L': 0, 'K': 1, 'M': 0, 'F': 0,
+    'P': 0, 'S': 1, 'T': 1, 'W': 0, 'Y': 1, 'V': 0
+}
+
+CHARGE = {
+    'A': 0, 'R': 1, 'N': 0, 'D': -1, 'C': 0, 'Q': 0, 'E': -1,
+    'G': 0, 'H': 1, 'I': 0, 'L': 0, 'K': 1, 'M': 0, 'F': 0,
+    'P': 0, 'S': 0, 'T': 0, 'W': 0, 'Y': 0, 'V': 0
+}
+
+def compute_residue_features(sequence):
+    """Compute residue-level features: hydrophobicity, polarity, and charge."""
+    hydrophobicity = [HYDROPHOBICITY.get(res, 0) for res in sequence]
+    polarity = [POLARITY.get(res, 0) for res in sequence]
+    charge = [CHARGE.get(res, 0) for res in sequence]
+    return hydrophobicity, polarity, charge
+
+
 def seq2onehot(seq):
     """
     Convert sequence to one-hot encoding.
@@ -145,15 +173,35 @@ class PDB_Dataset(Dataset):
         if not os.path.isfile(pdb_file):
             print(f"File not found: {pdb_file}")
             return None
-        
+
+        # Load contact map and sequence
         cmap = np.load(pdb_file)
         sequence = str(cmap['seqres'])
-        
+
         # One-hot encoding
         onehot_features = torch.tensor(seq2onehot(sequence), dtype=torch.float).squeeze(0)
+
         # ProtBERT embeddings
         protbert_features = torch.tensor(seq2protbert(sequence), dtype=torch.float).squeeze(0)
-        
+
+        # Compute additional features (hydrophobicity, polarity, charge)
+        hydrophobicity, polarity, charge = compute_residue_features(sequence)
+        additional_features = torch.tensor(
+            np.stack([hydrophobicity, polarity, charge], axis=1),
+            dtype=torch.float
+        )
+
+        # Ensure feature length alignment
+        residue_count = protbert_features.shape[0]  # Or onehot_features.shape[0]
+        additional_features = additional_features[:residue_count]
+
+        # Combine features with the selected model
+        if self.model == "protBERT":
+            node_features = torch.cat([protbert_features, additional_features], dim=1)
+        else:
+            node_features = torch.cat([onehot_features, additional_features], dim=1)
+
+        # Build adjacency information
         adjacency_info = self._get_adjacency_info(cmap['C_alpha'])
         labels = self._get_labels(prot_id, prot2annot)
         length = torch.tensor(len(sequence), dtype=torch.long)
@@ -161,15 +209,10 @@ class PDB_Dataset(Dataset):
         if self.selected_ontology:
             labels = labels.get(self.selected_ontology, torch.zeros(len(self.goterms), dtype=torch.long))
 
-        # Data objects
-        onehot_data = Data(x=onehot_features, edge_index=adjacency_info, u=prot_id, y=labels, length=length)
-        protbert_data = Data(x=protbert_features, edge_index=adjacency_info, u=prot_id, y=labels, length=length)
+        # Data object with updated node features
+        return Data(x=node_features, edge_index=adjacency_info, u=prot_id, y=labels, length=length)
 
-        if self.model == "protBERT":
-            return protbert_data
-        else:
-            return onehot_data
-
+        
     def _get_labels(self, prot_id, prot2annot):
         labels = {
             ont: torch.tensor(prot2annot[prot_id][ont], dtype=torch.long).unsqueeze(0)
@@ -211,4 +254,3 @@ num_shards = 20
 torch.manual_seed(12345)
 pdb_protBERT_dataset = PDB_Dataset(root, annot_file, num_shards=num_shards, selected_ontology="biological_process", model="protBERT")
 
-print(pdb_protBERT_dataset[0].x[0].shape, pdb_protBERT_dataset[0].edge_index.shape, pdb_protBERT_dataset[0].y.shape, pdb_protBERT_dataset[0].length)
