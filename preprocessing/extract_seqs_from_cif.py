@@ -17,6 +17,7 @@ import networkx as nx
 import obonet
 import csv 
 import numpy as np
+from Bio.PDB.PDBExceptions import PDBConstructionException
 
 exp_evidence_codes = set(['EXP', 'IDA', 'IPI', 'IMP', 'IGI', 'IEP', 'TAS', 'IC', 'CURATED'])
 root_terms = set(['GO:0008150', 'GO:0003674', 'GO:0005575'])
@@ -24,24 +25,31 @@ domain_terms = 'GO:0008150'
 
 def get_seqs(fname):
     with gzip.open(fname, "rt") as handle:
-        parser = MMCIFParser()
+        parser = MMCIFParser(QUIET=True)
         pdb_id = os.path.split(fname)[1].split(".")[0] 
-        structure = parser.get_structure(pdb_id, handle)
-        chains = {f"{pdb_id}_{chain.id}":seq1(''.join(residue.resname for residue in chain)) for chain in structure.get_chains()}
+        try:
+            structure = parser.get_structure(pdb_id, handle)
+            chains = {f"{pdb_id}_{chain.id}": seq1(''.join(residue.resname for residue in chain)) for chain in structure.get_chains()}
+        except PDBConstructionException as e:
+            print(f"Error processing file {fname}: {e}. Skipping this file.")
+            return {}  # Return an empty dictionary if an error occurs
     return chains
+
 
 def write_seqs_from_cifdir(dirpath, fname):
     structure_dir = Path(dirpath)
+    seq_count = len([name for name in os.listdir(dirpath)])
     seqs_file = open(fname, "w")
-    for file in structure_dir.glob("*"):
+    for file in structure_dir.glob("*.cif.gz"):
         chain_dir = get_seqs(file)
         for key in chain_dir:
-            #unknown_percentage = chain_dir[key].count("X")/len(chain_dir[key])
-            #print(f"seq:{chain_dir[key]}, percentage:{unknown_percentage}")
-            #if unknown_percentage <= 0.2:
-            seqs_file.write(f">{key}\n{chain_dir[key]}\n")
+            print("key: ", key)
+            try:
+                if len(chain_dir[key])>60:
+                    seqs_file.write(f">{key}\n{chain_dir[key]}\n")
+            except ZeroDivisionError as e:
+                print(e)
     return seqs_file
-
 
 #write_seqs_from_cifdir("preprocessing/data/structure_files")
 
@@ -59,9 +67,9 @@ def read_seqs_file(seqs_file):
             if ">" in line:
                 key  = line.strip().replace(">", "")
             else:
-                unknown_percentage = line.strip().count("X")/len(line.strip())
-                if unknown_percentage <= 0.2:
-                    pdb2seq[key] = line.strip() 
+                #unknown_percentage = line.strip().count("X")/len(line.strip())
+                #if unknown_percentage <= 0.2:
+                pdb2seq[key] = line.strip() 
     return pdb2seq
 
             #unknown_percentage = chain_dir[key].count("X")/len(chain_dir[key])
@@ -141,6 +149,21 @@ def read_sifts(sifts_fname, pdb_chains, go_graph):
                         go2info[go]['pdb_chains'].add(pdb_chain)
     return pdb2go, go2info
 
+
+
+def write_prot_list(protein_list, filename):
+    # write list of protein IDs
+    fWrite = open(filename, 'w')
+    for p in protein_list:
+        fWrite.write("%s\n" % (p))
+    fWrite.close()
+
+def write_fasta(fn, sequences):
+    # write fasta
+    with open(fn, "w") as output_handle:
+        for sequence in sequences:
+            SeqIO.write(sequence, output_handle, "fasta")
+            
 def write_output_files(fname, pdb2go, go2info, pdb2seq):
     onts = ['molecular_function', 'biological_process', 'cellular_component']
     selected_goterms = {ont: set() for ont in onts}
@@ -150,7 +173,7 @@ def write_output_files(fname, pdb2go, go2info, pdb2seq):
         num = len(prots)
         namespace = go2info[goterm]['ont']
         #print(f"Goterm: {goterm}, Num: {num}, Namespace: {namespace}")
-        if (num > 10) and (num <= 5000):
+        if (num > 50) and (num <= 5000):
             selected_goterms[namespace].add(goterm)
             selected_proteins = selected_proteins.union(prots)
 
@@ -162,13 +185,6 @@ def write_output_files(fname, pdb2go, go2info, pdb2seq):
 
     sequences_list = []
     protein_list = []
-
-    with open(fname + "pdb2sequences.fasta", 'wt', newline='')  as out_file:
-        for key in pdb2seq.keys():   
-            #unknown_percentage = pdb2seq[key].count("X")/len(pdb2seq[key])
-            #print(f"seq:{pdb2seq[key]}, percentage:{unknown_percentage}")
-            #if unknown_percentage <= 0.2:
-            out_file.write(f">{key}\n{pdb2seq[key]}\n")
 
     with open(fname + 'pdb2go.tsv', 'wt', newline='') as out_file:
         tsv_writer = csv.writer(out_file, delimiter='\t')
@@ -196,19 +212,62 @@ def write_output_files(fname, pdb2go, go2info, pdb2seq):
     np.random.seed(1234)
     np.random.shuffle(protein_list)
     print ("Total number PDB Chains annotated =%d" % (len(protein_list)))
+
+    # select test set based in 30% sequence identity
+    test_list = set()
+    test_sequences_list = []
+    i = 0
+    while len(test_list) < 5000 and i < len(protein_list):
+        goterms = pdb2go[protein_list[i]]['goterms']
+        evidence = pdb2go[protein_list[i]]['evidence']
+        goterm2evidence = {goterms[i]: evidence[i] for i in range(len(goterms))}
+
+        # selected goterms
+        mf_goterms = set(goterms).intersection(set(selected_goterms_list[onts[0]]))
+        bp_goterms = set(goterms).intersection(set(selected_goterms_list[onts[1]]))
+        cc_goterms = set(goterms).intersection(set(selected_goterms_list[onts[2]]))
+
+        mf_evidence = [goterm2evidence[goterm] for goterm in mf_goterms]
+        mf_evidence = [1 if evid in exp_evidence_codes else 0 for evid in mf_evidence]
+
+        bp_evidence = [goterm2evidence[goterm] for goterm in bp_goterms]
+        bp_evidence = [1 if evid in exp_evidence_codes else 0 for evid in bp_evidence]
+
+        cc_evidence = [goterm2evidence[goterm] for goterm in cc_goterms]
+        cc_evidence = [1 if evid in exp_evidence_codes else 0 for evid in cc_evidence]
+
+        if len(mf_goterms) > 0 and len(bp_goterms) > 0 and len(cc_goterms) > 0:
+            if sum(mf_evidence) > 0 and sum(bp_evidence) > 0 and sum(cc_evidence) > 0:
+                test_list.add(protein_list[i])
+                test_sequences_list.append(SeqRecord(Seq(pdb2seq[protein_list[i]]), id=protein_list[i], description="nrPDB_test"))
+        i += 1
+
+    print ("Total number of test PDB=%d" % (len(test_list)))
+
+    protein_list = list(set(protein_list).difference(test_list))
+    np.random.shuffle(protein_list)
+
+    idx = int(0.8*len(protein_list))
+    write_prot_list(test_list, fname + '_test.txt')
+    write_prot_list(protein_list[:idx], fname + '_train.txt')
+    write_prot_list(protein_list[idx:], fname + '_valid.txt')
+    write_fasta(fname + '_sequences.fasta', sequences_list)
+    write_fasta(fname + '_test_sequences.fasta', test_sequences_list)
     #print(f"Sample protein chain : {protein_list[0]}")
 
+
+#"/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/seqs_from_structure_dir.fasta"
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-sifts', type=str, default='preprocessing/data/pdb_chain_go.tsv_2024-06-25', help="SIFTS annotation files.")
     parser.add_argument('-struc_dir', type= str, default='preprocessing/data/structure_files', help= 'directory containing cif files')
     #parser.add_argument('-clu', type=str, default='preprocessing/data/mmseqs2_clusters_0.5_seq_id_0.8_cov.tsv', help="mmseqs2_cluster_results")
-    parser.add_argument('-seqs', type=str, default='preprocessing/data/seqs_from_structure_dir.fasta', help="sequences from cif directory")
+    parser.add_argument('-seqs', type=str, default="preprocessing/data/seqs_from_structure_dir.fasta", help="sequences from cif directory")
     parser.add_argument('-obo', type=str, default='preprocessing/data/go-basic_2024-06-25.obo', help="gene ontology basic.obo file")
     parser.add_argument('-out', type=str, default='preprocessing/data/', help="output files")    
     args = parser.parse_args()
 
-    #write_seqs_from_cifdir(args.struc_dir, args.seqs)
+    write_seqs_from_cifdir(args.struc_dir, args.seqs)
     #repr = load_cluster_file(args.clu)
 
     #pdb2seq = pdb_2_seq(args.seqs)

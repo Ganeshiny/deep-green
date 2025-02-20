@@ -1,33 +1,65 @@
 import os
 import gzip
 from pathlib import Path
-from biotoolbox.structure_file_reader import build_structure_container_for_pdb
-from biotoolbox.contact_map_builder import DistanceMapBuilder
 from extract_seqs_from_cif import read_seqs_file
 import numpy as np
 import argparse
 import glob
 import multiprocessing
 import csv
+import numpy as np
+import os
+import gzip
+import numpy as np
+from Bio.PDB import MMCIFParser
+import matplotlib.pyplot as plt
 
-def make_distance_maps(pdbfile, chain=None, sequence=None):
-    print(sequence, chain)
-    # Check if the file is gzipped
-    if pdbfile.endswith('.gz'):
-        with gzip.open(pdbfile, 'rt') as handle:  # 'rt' mode opens as text
-            structure_data = handle.read()
-    else:
-        with open(pdbfile, 'r') as handle:
-            structure_data = handle.read()
-
-    structure_container = build_structure_container_for_pdb(structure_data, chain).with_seqres(sequence)
-    print(sequence, chain)
-
-    mapper = DistanceMapBuilder(atom="CA", glycine_hack=-1)  
-    ca = mapper.generate_map_for_pdb(structure_container)
-    cb = mapper.set_atom("CB").generate_map_for_pdb(structure_container)
+def make_distance_maps(file_path):
+    """
+    Reads a compressed .cif.gz file and extracts atomic coordinates.
     
-    return ca.chains, cb.chains
+    Args:
+        file_path (str): Path to the .cif.gz file.
+    
+    Returns:
+        dict: A dictionary where keys are chain IDs and values contain:
+              - 'C_alpha': Distance matrix for alpha carbons (Cα)
+              - 'C_beta': Distance matrix for beta carbons (Cβ)
+    """
+    # Load the CIF file using Bio.PDB
+    with gzip.open(file_path, 'rt') as f:
+        parser = MMCIFParser(QUIET=True)
+        structure = parser.get_structure("protein", f)
+    
+    distance_matrices = {}
+
+    for model in structure:  # Usually only one model in PDB/MMCIF files
+        for chain in model:
+            chain_id = chain.id
+            ca_coords, cb_coords = [], []
+
+            for residue in chain:
+                if 'CA' in residue:
+                    ca_coords.append(residue['CA'].coord)
+                if 'CB' in residue:  # Cβ exists in all residues except Glycine
+                    cb_coords.append(residue['CB'].coord)
+                else:
+                    cb_coords.append(residue['CA'].coord)  # Use Cα for Glycine
+
+            # Convert lists to NumPy arrays
+            ca_coords = np.array(ca_coords)
+            cb_coords = np.array(cb_coords)
+
+            # Compute pairwise Euclidean distance matrices
+            ca_dist_map = np.linalg.norm(ca_coords[:, None, :] - ca_coords[None, :, :], axis=-1)
+            cb_dist_map = np.linalg.norm(cb_coords[:, None, :] - cb_coords[None, :, :], axis=-1)
+
+            distance_matrices[chain_id] = {
+                "C_alpha": ca_dist_map,
+                "C_beta": cb_dist_map
+            }
+
+    return distance_matrices
 
 def load_GO_annot(filename):
     onts = ['molecular_function', 'biological_process', 'cellular_component']
@@ -51,9 +83,10 @@ def load_GO_annot(filename):
                 prot2annot[prot][onts[i]] = [goterm for goterm in prot_goterms[i].split(',') if goterm != '']
     return prot2annot, goterms, gonames
 
-def cif2cmap(pdb, chain, seq, pdir):
-    ca, cb = make_distance_maps(os.path.join(pdir, pdb + '.cif.gz'), chain=chain, sequence=seq)
-    return ca[chain]['contact-map'], cb[chain]['contact-map']
+
+def cif2cmap(pdb, chain, pdir):
+    distance_matrices = make_distance_maps(os.path.join(pdir, pdb + '.cif.gz'))
+    return distance_matrices[chain]['C_alpha'], distance_matrices[chain]['C_beta']
 
 def write_annot_npz(prot, prot2seq, struct_dir):
     pdb, chain = prot.split('_')
@@ -63,7 +96,7 @@ def write_annot_npz(prot, prot2seq, struct_dir):
     os.makedirs(tmp_dir, exist_ok=True)
 
     try:
-        A_ca, A_cb = cif2cmap(pdb, chain, prot2seq[prot], pdir=struct_dir)
+        A_ca, A_cb = cif2cmap(pdb, chain, pdir=struct_dir)
         np.savez_compressed(os.path.join(tmp_dir, prot),
                             C_alpha=A_ca,
                             C_beta=A_cb,
@@ -74,10 +107,10 @@ def write_annot_npz(prot, prot2seq, struct_dir):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('-annot', type=str, default='./preprocessing/data/pdb2go.tsv', help="Input file (*.tsv) with preprocessed annotations.")
-    parser.add_argument('-seqs', type=str, default='./preprocessing/data/pdb2sequences.fasta', help="PDB chain seqres fasta.")
+    parser.add_argument('-annot', type=str, default='preprocessing/data/pdb2go.tsv', help="Input file (*.tsv) with preprocessed annotations.")
+    parser.add_argument('-seqs', type=str, default='preprocessing/data/seqs_from_structure_dir.fasta', help="PDB chain seqres fasta.")
     parser.add_argument('-num_threads', type=int, default=20, help="Number of threads (CPUs) to use in the computation.")
-    parser.add_argument('-struc_dir', type=str, default='./preprocessing/data/structure_files', help='Directory containing cif files')
+    parser.add_argument('-struc_dir', type=str, default='preprocessing/data/structure_files', help='Directory containing cif files')
 
     args = parser.parse_args()
     struct_dir = args.struc_dir

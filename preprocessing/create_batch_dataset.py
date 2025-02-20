@@ -36,221 +36,187 @@ CHARGE = {
 
 def compute_residue_features(sequence):
     """Compute residue-level features: hydrophobicity, polarity, and charge."""
-    hydrophobicity = [HYDROPHOBICITY.get(res, 0) for res in sequence]
-    polarity = [POLARITY.get(res, 0) for res in sequence]
-    charge = [CHARGE.get(res, 0) for res in sequence]
-    return hydrophobicity, polarity, charge
-
+    return (
+        [HYDROPHOBICITY.get(res, 0) for res in sequence],
+        [POLARITY.get(res, 0) for res in sequence],
+        [CHARGE.get(res, 0) for res in sequence]
+    )
 
 def seq2onehot(seq):
-    """
-    Convert sequence to one-hot encoding.
-    """
+    """Convert sequence to one-hot encoding."""
     chars = ['-', 'D', 'G', 'U', 'L', 'N', 'T', 'K', 'H', 'Y', 'W', 'C', 'P',
              'V', 'S', 'O', 'I', 'E', 'F', 'X', 'Q', 'A', 'B', 'Z', 'R', 'M']
     vocab_embed = {char: idx for idx, char in enumerate(chars)}
     vocab_one_hot = np.eye(len(chars), dtype=int)
-    seqs_x = np.array([vocab_one_hot[vocab_embed[v]] for v in seq])
-    return seqs_x
+    return np.array([vocab_one_hot[vocab_embed[v]] for v in seq])
 
 def seq2protbert(seq):
-    # Tokenize the sequence
-    seq = ' '.join(seq)
+    """Get ProtBERT embeddings for a protein sequence."""
+    seq = ' '.join(seq)  # Add spaces between amino acids
     inputs = tokenizer(seq, return_tensors='pt', add_special_tokens=True, padding=True, truncation=True)
     input_ids = inputs['input_ids'].to(device)
     attention_mask = inputs['attention_mask'].to(device)
-    
+
     with torch.no_grad():
-        # Get ProtBERT embeddings
-        outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-        embeddings = outputs.last_hidden_state
-        
-    # ProtBERT embeddings to numpy
+        embeddings = model(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
+
     embeddings = embeddings.detach().cpu().numpy()
-    attention_mask = attention_mask.detach().cpu().numpy()
-    
-    features = []
-    for seq_num in range(len(embeddings)):
-        seq_len = (attention_mask[seq_num] == 1).sum() 
-        if seq_len > 2: 
-            seq_emd = embeddings[seq_num][1:seq_len-1]  # without [CLS] and [SEP]
-            features.append(seq_emd)  
-    return np.array(features)
+    mask = attention_mask.detach().cpu().numpy()
+
+    # Extract embeddings, removing CLS and SEP tokens
+    return np.array([embeddings[i][1:np.sum(mask[i]) - 1] for i in range(len(embeddings))])
+
+def read_list_file(filename):
+    """Read list of PDB IDs from a file."""
+    with open(filename, "r") as file:
+        return [line.strip() for line in file.readlines()]
 
 class PDB_Dataset(Dataset):
-    def __init__(self, root, annot_file, num_shards=20, selected_ontology=None, transform=None, pre_transform=None, model = None, annot_pkl_file = "preprocessing/data/annot_dict.pkl"):
-        self.annot_pkl_file = annot_pkl_file
-        annot_data = self.annot_file_reader(annot_file, self.annot_pkl_file)
+    def __init__(self, root, annot_file, num_shards=20, selected_ontology=None, transform=None, pre_transform=None, model="protBERT", pdb_split_set_file=None, dataset_type = None):
         self.model = model
-        self.prot2annot = annot_data[0]
-        self.gonames = annot_data[2][selected_ontology]
-        self.goterms = annot_data[1][selected_ontology]
-        self.prot_list = [prot_id for prot_id in annot_data[3] if os.path.exists(os.path.join(root, f'{prot_id}.npz'))]
         self.npz_dir = root
         self.num_shards = num_shards
         self.selected_ontology = selected_ontology
-        self.y_labels = annot_data[1][selected_ontology]
         self.transform = transform
         self.pre_transform = pre_transform
+        self.dataset_type = dataset_type
+
+        # Read annotation data
+        self.prot2annot, self.goterms, self.gonames, self.prot_list = self.annot_file_reader(annot_file)
+        self.y_labels = self.goterms[selected_ontology]
+
+        # Read list of proteins if a specific split is given
+        self.pdb_split_list = read_list_file(pdb_split_set_file) if pdb_split_set_file else self.prot_list
+        self.pdb_split_list = [prot for prot in self.pdb_split_list if os.path.exists(os.path.join(root, f'{prot}.npz'))]
+
+        print(f" Loaded dataset with {len(self.pdb_split_list)} proteins for {selected_ontology}")
+
         super(PDB_Dataset, self).__init__(root, transform, pre_transform)
-    
-    def annot_file_reader(self, annot_filename, output_filename):
+
+    @classmethod
+    def annot_file_reader(cls, annot_filename):
         onts = ['molecular_function', 'biological_process', 'cellular_component']
         prot2annot = {}
         goterms = {ont: [] for ont in onts}
         gonames = {ont: [] for ont in onts}
         prot_list = []
+
         with open(annot_filename, mode='r') as tsvfile:
             reader = csv.reader(tsvfile, delimiter='\t')
+            for ont in onts:
+                next(reader, None)  # Skip headers
+                goterms[ont] = next(reader)
+                next(reader, None)  # Skip headers
+                gonames[ont] = next(reader)
 
-            # molecular function
-            next(reader, None)  # skip the headers
-            goterms[onts[0]] = next(reader)
-            next(reader, None)  # skip the headers
-            gonames[onts[0]] = next(reader)
-
-            # biological process
-            next(reader, None)  # skip the headers
-            goterms[onts[1]] = next(reader)
-            next(reader, None)  # skip the headers
-            gonames[onts[1]] = next(reader)
-
-            # cellular component
-            next(reader, None)  # skip the headers
-            goterms[onts[2]] = next(reader)
-            next(reader, None)  # skip the headers
-            gonames[onts[2]] = next(reader)
-
-            next(reader, None)  # skip the headers
+            next(reader, None)  # Skip headers
             for row in reader:
-                prot, prot_goterms = row[0], row[1:]
-                prot2annot[prot] = {ont: [] for ont in onts}
-                for i in range(3):
-                    goterm_indices = [goterms[onts[i]].index(goterm) for goterm in prot_goterms[i].split(',') if
-                                    goterm != '']
-                    prot2annot[prot][onts[i]] = np.zeros(len(goterms[onts[i]]), dtype=np.int64)
-                    prot2annot[prot][onts[i]][goterm_indices] = 1.0
+                prot = row[0]  # Ensure ID format consistency
+                prot2annot[prot] = {ont: np.zeros(len(goterms[ont]), dtype=np.int64) for ont in onts}
+                for i, ont in enumerate(onts):
+                    goterm_indices = [goterms[ont].index(goterm) for goterm in row[i+1].split(',') if goterm]
+                    prot2annot[prot][ont][goterm_indices] = 1.0
                 prot_list.append(prot)
 
-            # Save the results to a file
-        output_data = {
-            'prot2annot': prot2annot,
-            'goterms': goterms,
-            'gonames': gonames,
-            'prot_list': prot_list
-        }
-        output_file = open(output_filename, 'wb')
-        pickle.dump(output_data, output_file)
-
-        print(f"Output saved to {output_filename}")
         return prot2annot, goterms, gonames, prot_list
 
     @property
     def num_classes(self):
-        return len(self.prot2annot[self.prot_list[0]][self.selected_ontology]) if self.selected_ontology else None
+        return len(self.y_labels)
 
     @property
     def processed_file_names(self):
-        return [f'data_{i}.pt' for i in range(len(self.prot_list))]
-    
-    @property
-    def num_classes(self):
-        return len(self.prot2annot[self.prot_list[0]][self.selected_ontology]) if self.selected_ontology else None
+        """Returns a list of processed filenames."""
+        if self.pdb_split_list:
+            return [f'data_{i}.pt' for i in range(len(self.pdb_split_list))]
+        else:
+            return [f'data_{i}.pt' for i in range(len(self.prot_list))]
 
     def process(self):
         data_list = []
-        for index, prot_id in tqdm(enumerate(self.prot_list), total=len(self.prot_list)):
-            data = self._load_data(prot_id, self.prot2annot)
+        for index, prot_id in tqdm(enumerate(self.pdb_split_list), total=len(self.pdb_split_list)):
+            data = self._load_data(prot_id)
             if data:
-                if self.pre_transform:
-                    data = self.pre_transform(data)
                 data_list.append(data)
-                torch.save(data, os.path.join(self.processed_dir, f'data_{index}.pt'))
+                torch.save(data, os.path.join(self.processed_dir, f'data_{self.dataset_type}_{index}.pt'))
         return data_list
 
-    def _load_data(self, prot_id, prot2annot):
+    def _load_data(self, prot_id):
         pdb_file = os.path.join(self.npz_dir, f'{prot_id}.npz')
         if not os.path.isfile(pdb_file):
-            print(f"File not found: {pdb_file}")
+            print(f" File not found: {pdb_file}")
             return None
 
-        # Load contact map and sequence
         cmap = np.load(pdb_file)
         sequence = str(cmap['seqres'])
 
-        # One-hot encoding
         onehot_features = torch.tensor(seq2onehot(sequence), dtype=torch.float).squeeze(0)
-
-        # ProtBERT embeddings
         protbert_features = torch.tensor(seq2protbert(sequence), dtype=torch.float).squeeze(0)
 
-        # Compute additional features (hydrophobicity, polarity, charge)
         hydrophobicity, polarity, charge = compute_residue_features(sequence)
-        additional_features = torch.tensor(
-            np.stack([hydrophobicity, polarity, charge], axis=1),
-            dtype=torch.float
-        )
+        additional_features = torch.tensor(np.stack([hydrophobicity, polarity, charge], axis=1), dtype=torch.float)
 
-        # Ensure feature length alignment
-        residue_count = protbert_features.shape[0]  # Or onehot_features.shape[0]
+        residue_count = min(protbert_features.shape[0], onehot_features.shape[0])
         additional_features = additional_features[:residue_count]
 
-        # Combine features with the selected model
-        if self.model == "protBERT":
-            node_features = torch.cat([protbert_features, additional_features], dim=1)
-        else:
-            node_features = torch.cat([onehot_features, additional_features], dim=1)
+        node_features = torch.cat([protbert_features, additional_features], dim=1) if self.model == "protBERT" else torch.cat([onehot_features, additional_features], dim=1)
 
-        # Build adjacency information
-        adjacency_info = self._get_adjacency_info(cmap['C_alpha'])
-        labels = self._get_labels(prot_id, prot2annot)
+        edge_index = self._get_adjacency_info(cmap['C_alpha'])
+        labels = self._get_labels(prot_id)
         length = torch.tensor(len(sequence), dtype=torch.long)
 
-        if self.selected_ontology:
-            labels = labels.get(self.selected_ontology, torch.zeros(len(self.goterms), dtype=torch.long))
+        return Data(x=node_features, edge_index=edge_index, u=prot_id, y=labels, length=length)
 
-        # Data object with updated node features
-        return Data(x=node_features, edge_index=adjacency_info, u=prot_id, y=labels, length=length)
-
-        
-    def _get_labels(self, prot_id, prot2annot):
-        labels = {
-            ont: torch.tensor(prot2annot[prot_id][ont], dtype=torch.long).unsqueeze(0)
-            for ont in ['molecular_function', 'biological_process', 'cellular_component']
-        }
+    def _get_labels(self, prot_id):
+        labels = {ont: torch.tensor(self.prot2annot.get(prot_id, {}).get(ont, np.zeros(len(self.y_labels), dtype=np.int64)), dtype=torch.long) for ont in ['molecular_function', 'biological_process', 'cellular_component']}
 
         for ont, label in labels.items():
-            if label.numel() == 0:
-                labels[ont] = torch.zeros(1, dtype=torch.long)
-
-        return labels
+            if label.dim() == 1:
+                labels[ont] = label.unsqueeze(0)  # Add batch dimension
+        
+        return labels.get(self.selected_ontology, torch.zeros(len(self.y_labels), dtype=torch.long))
 
     def _get_adjacency_info(self, distance_matrix, threshold=8.0):
         adjacency_matrix = (distance_matrix <= threshold).astype(int)
         np.fill_diagonal(adjacency_matrix, 0)
         edge_indices = np.nonzero(adjacency_matrix)
-
-        coo_matrix = sp.coo_matrix((np.ones_like(edge_indices[0]), edge_indices))
-        return torch.tensor([coo_matrix.row, coo_matrix.col], dtype=torch.long)
+        return torch.tensor([edge_indices[0], edge_indices[1]], dtype=torch.long)
 
     def len(self):
-        return len(self.prot_list)
-    
+        return len(self.pdb_split_list)
+
     def get(self, idx):
-        prot_id = self.prot_list[idx]
-        data = self._load_data(prot_id, self.prot2annot)
-        return data
+        return self._load_data(self.pdb_split_list[idx])
 
 
 # Device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print('Using device:', device)
 
-# Dataset Setup
 root = 'preprocessing/data/structure_files/tmp_cmap_files'
-annot_file = 'preprocessing/data/pdb2go.tsv'
+annot_file = "preprocessing/data/pdb2go.tsv"
 num_shards = 20
 
-torch.manual_seed(12345)
-pdb_protBERT_dataset = PDB_Dataset(root, annot_file, num_shards=num_shards, selected_ontology="biological_process", model="protBERT")
+test_file = "preprocessing/data/split_files/_test.txt"
+train_file = "preprocessing/data/split_files/_train.txt"
+valid_file = "preprocessing/data/split_files/_valid.txt"
 
+torch.manual_seed(12345)
+pdb_protBERT_dataset_test = PDB_Dataset(root=root, annot_file=annot_file, num_shards=num_shards, selected_ontology="biological_process", transform=None, pre_transform=None, model="protBERT", pdb_split_set_file=test_file, dataset_type = "test")
+pdb_protBERT_dataset_train = PDB_Dataset(root=root, annot_file=annot_file, num_shards=num_shards, selected_ontology="biological_process", transform=None, pre_transform=None, model ="protBERT", pdb_split_set_file=train_file, dataset_type = "train")
+pdb_protBERT_dataset_valid = PDB_Dataset(root=root, annot_file=annot_file, num_shards=num_shards, selected_ontology="biological_process", transform=None, pre_transform=None, model="protBERT",  pdb_split_set_file=valid_file, dataset_type = "valid")
+
+print(f"Train: {len(pdb_protBERT_dataset_train)}, Test: {len(pdb_protBERT_dataset_test)}, Valid: {len(pdb_protBERT_dataset_valid)}")
+print(len(pdb_protBERT_dataset_train), len(pdb_protBERT_dataset_valid[0].x[0]), pdb_protBERT_dataset_train.num_classes, pdb_protBERT_dataset_valid.num_classes)
+# Paths to save the datasets
+dataset_save_path = "preprocessing/data/split_files/datasets.pkl"
+
+# Save datasets to a pickle file
+with open(dataset_save_path, 'wb') as f:
+    pickle.dump({
+        'train': pdb_protBERT_dataset_train,
+        'test': pdb_protBERT_dataset_test,
+        'valid': pdb_protBERT_dataset_valid
+    }, f)
+
+print(f"Datasets saved to {dataset_save_path}")
