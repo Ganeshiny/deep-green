@@ -133,7 +133,8 @@ def write_annot_npz(prot, prot2seq, struct_dir, is_csm=True):
     try:
         print("Processing", pdb, chain)
         # Call cif2cmap (assuming it's defined elsewhere in your code)
-        A_ca, A_cb = cif2cmap(pdb, chain, prot2seq[prot], pdir=struct_dir)
+        print(struct_dir)
+        A_ca, A_cb = cif2cmap(pdb, chain, pdir=struct_dir)
         
         # Save the results in a compressed .npz file
         np.savez_compressed(os.path.join(tmp_dir, prot),

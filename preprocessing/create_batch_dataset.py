@@ -189,7 +189,7 @@ class PDB_Dataset(Dataset):
         return self._load_data(self.pdb_split_list[idx])
 
 
-# Device
+'''# Device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print('Using device:', device)
 
@@ -219,4 +219,4 @@ with open(dataset_save_path, 'wb') as f:
         'valid': pdb_protBERT_dataset_valid
     }, f)
 
-print(f"Datasets saved to {dataset_save_path}")
+print(f"Datasets saved to {dataset_save_path}")'''

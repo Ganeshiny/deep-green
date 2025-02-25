@@ -10,8 +10,7 @@ from utils import load_alpha_weights
 from preprocessing.create_batch_dataset import PDB_Dataset
 from tqdm import tqdm  # FIX the import
 from utils import calculate_class_weights, save_alpha_weights, load_alpha_weights
-
-
+from torch.optim.lr_scheduler import CosineAnnealingLR
 
 
 # Load datasets from the pickle file
@@ -27,12 +26,13 @@ pdb_protBERT_dataset_valid = datasets['valid']
 print(f"Loaded datasets: Train={len(pdb_protBERT_dataset_train)}, Test={len(pdb_protBERT_dataset_test)}, Valid={len(pdb_protBERT_dataset_valid)}")
 
 # Constants
-THRESHOLD = 0.5
 BATCH_SIZE = 128
-EPOCHS = 500
-LEARNING_RATE = 0.00001  
+EPOCHS = 200
+LEARNING_RATE = 0.001  
+MIN_THRESHOLD = 0.3
+MAX_THRESHOLD = 0.5
 
-BEST_MODEL_PATH = f'/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/best_model.pth'
+BEST_MODEL_PATH = f'/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/model_weights_adjusted_for_local_minima_converging.pth'
 CLASS_WEIGHT_PATH = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/alpha_weights_s_train_1.pkl"
 PLOT_SAVE_PATH = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/results"
 
@@ -45,8 +45,8 @@ train_loader = DataLoader(pdb_protBERT_dataset_train, batch_size=BATCH_SIZE, shu
 test_loader = DataLoader(pdb_protBERT_dataset_test, batch_size=BATCH_SIZE, shuffle=False)
 valid_loader = DataLoader(pdb_protBERT_dataset_valid, batch_size=BATCH_SIZE, shuffle=False)
 
-alpha = calculate_class_weights(pdb_protBERT_dataset_train, device)
-save_alpha_weights(alpha, CLASS_WEIGHT_PATH)
+#alpha = calculate_class_weights(pdb_protBERT_dataset_train, device)
+#save_alpha_weights(alpha, CLASS_WEIGHT_PATH)
 alpha = load_alpha_weights(CLASS_WEIGHT_PATH)
 print(f"Alpha weights: {alpha}")
 
@@ -57,14 +57,14 @@ print(f"Cleaned Alpha weights: {alpha}")
 
 # Model Setup
 input_size = len(pdb_protBERT_dataset_train[0].x[0])
-hidden_sizes = [1027, 912]
+hidden_sizes = [1027, 912, 512, 256]
 output_size = pdb_protBERT_dataset_train.num_classes
 model = GCN(input_size, hidden_sizes, output_size).to(device)
 
 # Criterion and Optimizer
-criterion = FocalLoss(alpha=alpha, gamma=3)
-optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5)
+criterion = FocalLoss(alpha=alpha, gamma=2)
+optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE, momentum=0.9, weight_decay=1e-4, nesterov=True)
+scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.001, epochs=EPOCHS, steps_per_epoch=len(train_loader))
 
 # Tracking Metrics
 train_losses, test_losses, valid_losses = [], [], []
@@ -75,37 +75,54 @@ best_valid_acc = 0
 def train():
     model.train()
     total_loss, correct, total = 0, 0, 0
-    for data in tqdm(train_loader, total=len(pdb_protBERT_dataset_train)):
-        data = data.to(device)
-        optimizer.zero_grad()
-        out = model(data.x, data.edge_index, data.batch)
-        loss = criterion(out, data.y.float())
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.item()
-        pred = torch.sigmoid(out) > THRESHOLD
-        correct += (pred == data.y).sum().item()
-        total += np.prod(data.y.shape)
+    
+    with tqdm(train_loader, desc="Training", unit="batch", leave=True) as pbar:
+        for data in pbar:
+            data = data.to(device)
+            optimizer.zero_grad()
+            out = model(data.x, data.edge_index, data.batch)
+            loss = criterion(out, data.y.float())
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+            
+            # Adaptive threshold
+            mean_prob = torch.mean(torch.sigmoid(out))
+            threshold = max(MIN_THRESHOLD, min(MAX_THRESHOLD, mean_prob))  
+            pred = torch.sigmoid(out) > threshold
+            correct += (pred == data.y).sum().item()
+            total += np.prod(data.y.shape)
 
-    '''        if i % 10 == 0:
-                print(f"Batch {i}: Loss={loss.item():.4f}")
-    '''
+            # Update tqdm progress bar with loss info
+            pbar.set_postfix(loss=loss.item())
+
     return total_loss / len(train_loader), correct / total
 
-# Test/Validation Function
+
 def evaluate(loader):
     model.eval()
     total_loss, correct, total = 0, 0, 0
+    
     with torch.no_grad():
-        for data in tqdm(loader):
-            data = data.to(device)
-            out = model(data.x, data.edge_index, data.batch)
-            loss = criterion(out, data.y.float())
-            total_loss += loss.item()
-            pred = torch.sigmoid(out) > THRESHOLD
-            correct += (pred == data.y).sum().item()
-            total += np.prod(data.y.shape)
+        with tqdm(loader, desc="Evaluating", unit="batch", leave=True) as pbar:
+            for data in pbar:
+                data = data.to(device)
+                out = model(data.x, data.edge_index, data.batch)
+                loss = criterion(out, data.y.float())
+                total_loss += loss.item()
+
+                # Adaptive threshold
+                mean_prob = torch.mean(torch.sigmoid(out))
+                threshold = max(MIN_THRESHOLD, min(MAX_THRESHOLD, mean_prob))  
+                pred = torch.sigmoid(out) > threshold
+                correct += (pred == data.y).sum().item()
+                total += np.prod(data.y.shape)
+
+                # Update tqdm progress bar with loss info
+                pbar.set_postfix(loss=loss.item())
+
     return total_loss / len(loader), correct / total
+
 
 # Training Loop
 for epoch in range(1, EPOCHS + 1):

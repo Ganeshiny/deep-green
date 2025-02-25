@@ -7,7 +7,7 @@ import glob
 import csv
 from transformers import BertTokenizer, BertModel
 import scipy.sparse as sp
-from model import GCN, RareLabelGNN
+from model import GCN
 from utils import write_seqs_from_cifdir, read_seqs_file, write_annot_npz
 import gc
 import json
@@ -16,7 +16,7 @@ BASE_PATH = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predi
 
 # Set device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-threshold = 0.45
+threshold = 0.95
 
 # Load ProtBERT model and tokenizer with gradient checkpointing for memory efficiency
 tokenizer = BertTokenizer.from_pretrained('Rostlab/prot_bert_bfd', do_lower_case=False)
@@ -218,7 +218,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-struc_dir', type=str, default=f'{BASE_PATH}/examples/structure_files', help='Directory containing cif files')
     parser.add_argument('-seqs', type=str, default=f'{BASE_PATH}/examples/predictions_seqs.fasta', help='FASTA file containing sequences')
-    parser.add_argument('-model_path', type=str, default=f"/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/best_model.pth", help='Path to the trained model weights')
+    parser.add_argument('-model_path', type=str, default=f"/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/model_weights_01.pth", help='Path to the trained model weights')
     parser.add_argument('-output', type=str, default=f'{BASE_PATH}/examples/predictionsss.csv', help='Output CSV file for predictions')
     parser.add_argument('-annot_dict', type=str, default=f'{BASE_PATH}/preprocessing/data/annot_dict.pkl', help='Path to the annotation dictionary')
     args = parser.parse_args()
@@ -233,17 +233,32 @@ if __name__ == '__main__':
     # Load GCN model
     model = torch.load(args.model_path)
     # Path to the model info JSON file
-    MODEL_INFO_PATH = f"{BASE_PATH}/model_and_weight_files/model_info_2_layers.json"
+    '''    MODEL_INFO_PATH = f"{BASE_PATH}/model_and_weight_files/model_info_2_layers.json"
 
-    # Step 1: Load the model information from the JSON file
-    with open(MODEL_INFO_PATH, 'r') as f:
-        model_info = json.load(f)
+        # Step 1: Load the model information from the JSON file
+        with open(MODEL_INFO_PATH, 'r') as f:
+            model_info = json.load(f)'''
 
-    # Extract the model parameters from the JSON file
-    input_size = model_info['input_size']
-    hidden_sizes = model_info['hidden_sizes']
-    output_size = model_info['output_size']
+    '''    # Extract the model parameters from the JSON file
+        input_size = model_info['input_size']
+        hidden_sizes = model_info['hidden_sizes']
+        output_size = model_info['output_size']'''
 
+    dataset_save_path = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachinthadata/datasets.pkl"
+
+    with open(dataset_save_path, 'rb') as f:
+        datasets = pickle.load(f)
+
+    pdb_protBERT_dataset_train = datasets['train']
+    pdb_protBERT_dataset_test = datasets['test']
+    pdb_protBERT_dataset_valid = datasets['valid']
+
+    print(f"Loaded datasets: Train={len(pdb_protBERT_dataset_train)}, Test={len(pdb_protBERT_dataset_test)}, Valid={len(pdb_protBERT_dataset_valid)}")
+    # Model Setup
+    input_size = len(pdb_protBERT_dataset_train[0].x[0])
+    hidden_sizes = [1027, 912, 512, 256]
+    output_size = pdb_protBERT_dataset_train.num_classes
+    model = GCN(input_size, hidden_sizes, output_size).to(device)
     # Step 2: Initialize the GCN model using the loaded parameters
     # Assuming the GCN constructor accepts input_size, hidden_sizes, and output_size
     model = GCN(input_size=input_size, hidden_sizes=hidden_sizes, output_size=output_size)
