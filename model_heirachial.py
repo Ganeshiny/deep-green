@@ -4,18 +4,14 @@ import torch.nn.functional as F
 from torch_geometric.nn import (
     GATv2Conv, 
     GINConv,
-    global_add_pool,
     GlobalAttention,
-    LayerNorm,
-    TransformerConv
+    LayerNorm
 )
-from torch_geometric.utils import dropout_adj
+from torch_geometric.utils import dropout_edge  # Updated function
 
-
-#GIT!!!!!!!!!!!
 class HierarchicalGNN(nn.Module):
     def __init__(self, input_dim, hidden_dims, output_dim, 
-                 num_heads=8, dropout=0.3, go_hierarchy=None):
+                 num_heads=4, dropout=0.3, go_hierarchy=None):
         super().__init__()
         self.go_hierarchy = go_hierarchy  # GO hierarchy adjacency matrix
         
@@ -27,18 +23,18 @@ class HierarchicalGNN(nn.Module):
             nn.Dropout(dropout)
         )
         
-        # Multimodal Graph Convolution Blocks
-        self.conv_layers = nn.ModuleList()
-        for i in range(len(hidden_dims)-1):
-            self.conv_layers.extend([
-                GATv2Conv(hidden_dims[i], hidden_dims[i]//num_heads, heads=num_heads),
-                GINConv(nn.Sequential(
+        # Build Triplets of Layers (GATv2Conv, GINConv, LayerNorm)
+        self.triplet_layers = nn.ModuleList()
+        num_triplets = len(hidden_dims) - 1
+        for i in range(num_triplets):
+            gat = GATv2Conv(hidden_dims[i], hidden_dims[i] // num_heads, heads=num_heads)
+            gin = GINConv(nn.Sequential(
                     nn.Linear(hidden_dims[i], hidden_dims[i+1]),
                     nn.ReLU(),
                     nn.BatchNorm1d(hidden_dims[i+1])
-                )),
-                LayerNorm(hidden_dims[i+1])
-            ])
+                ))
+            norm = LayerNorm(hidden_dims[i+1])
+            self.triplet_layers.append(nn.ModuleList([gat, gin, norm]))
         
         # Hierarchical Attention Pooling
         self.pool = GlobalAttention(
@@ -52,14 +48,14 @@ class HierarchicalGNN(nn.Module):
         # Label-aware Prediction Heads
         self.label_heads = nn.ModuleList([
             LabelAwareHead(hidden_dims[-1], 256, output_dim, 
-                          hierarchy=go_hierarchy[i])
+                           hierarchy=go_hierarchy[i] if go_hierarchy is not None else None)
             for i in range(output_dim)
         ])
         
-        # Residual Connections
+        # Residual Connections for each triplet
         self.res_linear = nn.ModuleList([
             nn.Linear(hidden_dims[i], hidden_dims[i+1])
-            for i in range(len(hidden_dims)-1)
+            for i in range(num_triplets)
         ])
         
         self.dropout = nn.Dropout(dropout)
@@ -68,25 +64,34 @@ class HierarchicalGNN(nn.Module):
         # Feature Projection
         x = self.feature_proj(x)
         
-        # Multimodal Convolution
-        for i, layer in enumerate(self.conv_layers):
-            if isinstance(layer, GATv2Conv):
-                # Edge dropout for regularization
-                edge_index, _ = dropout_adj(edge_index, p=0.2, 
-                                          training=self.training)
-                x = layer(x, edge_index)
-            else:
-                x_res = self.res_linear[i//3](x) if i%3 == 2 else 0
-                x = layer(x) + x_res
-                x = F.leaky_relu(x, 0.2)
-                x = self.dropout(x)
+        num_triplets = len(self.res_linear)
+        for t in range(num_triplets):
+            # Store input for residual connection
+            x_res_in = x.clone()
+            
+            # GATv2Conv with dropout_edge
+            gat_layer = self.triplet_layers[t][0]
+            edge_index_dropped, _ = dropout_edge(edge_index, p=0.2, training=self.training)
+            x = gat_layer(x, edge_index_dropped)
+            
+            # GINConv (pass edge_index)
+            gin_layer = self.triplet_layers[t][1]
+            x = gin_layer(x, edge_index)
+            
+            # LayerNorm
+            norm_layer = self.triplet_layers[t][2]
+            x = norm_layer(x)
+            
+            # Add residual connection (transform the stored input)
+            x = x + self.res_linear[t](x_res_in)
+            
+            # Activation and dropout
+            x = F.leaky_relu(x, 0.2)
+            x = self.dropout(x)
         
-        # Hierarchical Pooling
+        # Hierarchical Pooling and Label-aware Prediction Heads
         graph_emb = self.pool(x, batch)
-        
-        # Label-specific Predictions
         outputs = [head(graph_emb) for head in self.label_heads]
-        
         return torch.stack(outputs, dim=1)
 
 class LabelAwareHead(nn.Module):
@@ -107,9 +112,7 @@ class LabelAwareHead(nn.Module):
         )
         
     def forward(self, x):
-        # Attend to hierarchy-relevant features
+        # Attend to hierarchy-relevant features if provided
         if self.hierarchy is not None:
             x, _ = self.attention(x, x, x)
         return self.mlp(x)
-    
-

@@ -7,7 +7,7 @@ import glob
 import csv
 from transformers import BertTokenizer, BertModel
 import scipy.sparse as sp
-from model import GCN
+from model import GCN2, GCN
 from utils import write_seqs_from_cifdir, read_seqs_file, write_annot_npz
 import gc
 import json
@@ -16,7 +16,7 @@ BASE_PATH = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predi
 
 # Set device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-threshold = 0.95
+threshold = 0.7
 
 # Load ProtBERT model and tokenizer with gradient checkpointing for memory efficiency
 tokenizer = BertTokenizer.from_pretrained('Rostlab/prot_bert_bfd', do_lower_case=False)
@@ -201,10 +201,10 @@ def run_predictions(struct_dir, model, output_file, gonames, goids, batch_size=8
                     go_names = []
                     go_terms = []
 
-
+                
                 # Save the PDB ID and the indices of the True predictions to CSV
                 writer.writerow([id, go_terms, go_names])
-
+                print(f"id: {id}, number of predicted terms: {len(go_names)}")
                 go_names = []
                 go_terms = []
 
@@ -218,8 +218,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-struc_dir', type=str, default=f'{BASE_PATH}/examples/structure_files', help='Directory containing cif files')
     parser.add_argument('-seqs', type=str, default=f'{BASE_PATH}/examples/predictions_seqs.fasta', help='FASTA file containing sequences')
-    parser.add_argument('-model_path', type=str, default=f"/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/model_weights_01.pth", help='Path to the trained model weights')
-    parser.add_argument('-output', type=str, default=f'{BASE_PATH}/examples/predictionsss.csv', help='Output CSV file for predictions')
+    parser.add_argument('-model_path', type=str, default=f"/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/model_weights_adjusted_for_local_minima_converging.pth", help='Path to the trained model weights')
+    parser.add_argument('-output', type=str, default=f'{BASE_PATH}/examples/predictions_new.csv', help='Output CSV file for predictions')
     parser.add_argument('-annot_dict', type=str, default=f'{BASE_PATH}/preprocessing/data/annot_dict.pkl', help='Path to the annotation dictionary')
     args = parser.parse_args()
     annot_dict = args.annot_dict
@@ -253,12 +253,11 @@ if __name__ == '__main__':
     pdb_protBERT_dataset_test = datasets['test']
     pdb_protBERT_dataset_valid = datasets['valid']
 
-    print(f"Loaded datasets: Train={len(pdb_protBERT_dataset_train)}, Test={len(pdb_protBERT_dataset_test)}, Valid={len(pdb_protBERT_dataset_valid)}")
+    print(f"Loaded datasets: Train={pdb_protBERT_dataset_train[0].x[0]}, Test={pdb_protBERT_dataset_test[0].x[0]}, Valid={pdb_protBERT_dataset_valid[0].x[0]}")
     # Model Setup
     input_size = len(pdb_protBERT_dataset_train[0].x[0])
     hidden_sizes = [1027, 912, 512, 256]
     output_size = pdb_protBERT_dataset_train.num_classes
-    model = GCN(input_size, hidden_sizes, output_size).to(device)
     # Step 2: Initialize the GCN model using the loaded parameters
     # Assuming the GCN constructor accepts input_size, hidden_sizes, and output_size
     model = GCN(input_size=input_size, hidden_sizes=hidden_sizes, output_size=output_size)

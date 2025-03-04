@@ -5,7 +5,7 @@ import numpy as np
 import torch.nn.functional as F
 
 class FocalLoss(nn.Module):
-    def __init__(self, alpha=None, gamma=4, logits=True, reduction='mean'):
+    def __init__(self, alpha=None, gamma=2, logits=True, reduction='mean'):
         super(FocalLoss, self).__init__()
         self.alpha = alpha
         self.gamma = gamma

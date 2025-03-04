@@ -84,3 +84,60 @@ class GCN(nn.Module):
 
 
 
+class GCN2(nn.Module):
+    def __init__(self, input_size, hidden_sizes, output_size):
+        super(GCN2, self).__init__()
+        
+        # Feature Transformation
+        self.initial_bn = nn.BatchNorm1d(input_size)
+        self.input_proj = nn.Sequential(
+            nn.Linear(input_size, hidden_sizes[0]),
+            nn.LeakyReLU(0.2),
+            nn.Dropout(0.4)
+        )
+
+        # Graph Convolution Layers (SAGE + GATv2)
+        self.conv_layers = nn.ModuleList([
+            SAGEConv(hidden_sizes[0], hidden_sizes[1]),
+            GATv2Conv(hidden_sizes[1], hidden_sizes[1]//4, heads=4)
+        ])
+        self.bn_layers = nn.ModuleList([
+            nn.BatchNorm1d(hidden_sizes[1]),
+            nn.BatchNorm1d(hidden_sizes[1])
+        ])
+
+        # Hierarchical Pooling
+        self.pool = AttentionalAggregation(
+            gate_nn=nn.Sequential(
+                nn.Linear(hidden_sizes[1], hidden_sizes[1]),
+                nn.Tanh(),
+                nn.Linear(hidden_sizes[1], 1)
+            )
+        )
+
+        # Output Layer
+        self.output_layer = nn.Sequential(
+            nn.Linear(hidden_sizes[1] + input_size, output_size),
+            nn.LeakyReLU(0.2),
+            nn.BatchNorm1d(output_size)
+        )
+
+        # Regularization
+        self.dropout = nn.Dropout(0.3)
+
+    def forward(self, x, edge_index, batch):
+        x = self.initial_bn(x)
+        x_res = self.input_proj(x)
+
+        for conv, bn in zip(self.conv_layers, self.bn_layers):
+            x = F.leaky_relu(bn(conv(x, edge_index)), 0.2)
+            x = self.dropout(x)
+
+            if self.training:
+                edge_index, _ = dropout_edge(edge_index, p=0.2)
+
+        graph_emb = self.pool(x, batch)
+        global_res = global_mean_pool(x_res, batch)
+        final_emb = torch.cat([graph_emb, global_res], dim=1)
+
+        return self.output_layer(final_emb)
