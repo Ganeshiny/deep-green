@@ -16,7 +16,7 @@ BASE_PATH = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predi
 
 # Set device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-threshold = 0.7
+threshold = 0.43
 
 # Load ProtBERT model and tokenizer with gradient checkpointing for memory efficiency
 tokenizer = BertTokenizer.from_pretrained('Rostlab/prot_bert_bfd', do_lower_case=False)
@@ -218,7 +218,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-struc_dir', type=str, default=f'{BASE_PATH}/examples/structure_files', help='Directory containing cif files')
     parser.add_argument('-seqs', type=str, default=f'{BASE_PATH}/examples/predictions_seqs.fasta', help='FASTA file containing sequences')
-    parser.add_argument('-model_path', type=str, default=f"/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/model_weights_adjusted_for_local_minima_converging.pth", help='Path to the trained model weights')
+    parser.add_argument('-model_path', type=str, default=f"/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/model_weights_lower_lr_.pth", help='Path to the trained model weights')
     parser.add_argument('-output', type=str, default=f'{BASE_PATH}/examples/predictions_new.csv', help='Output CSV file for predictions')
     parser.add_argument('-annot_dict', type=str, default=f'{BASE_PATH}/preprocessing/data/annot_dict.pkl', help='Path to the annotation dictionary')
     args = parser.parse_args()

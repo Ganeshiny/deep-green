@@ -13,24 +13,29 @@ import multiprocessing
 import csv
 
 def calculate_class_weights(dataset, device):
-    # Calculate the number of classes in the dataset
+    # Calculate the number of classes
     num_classes = dataset[0].y.size(1)
     print("Number of classes:", num_classes)
 
     # Initialize class counters
     class_counts = torch.zeros(num_classes, dtype=torch.float32, device=device)
 
-
-    # Count the number of examples in each class
+    # Count occurrences per class
     for data in dataset:
-        class_counts += data.y.sum(dim=0).float().to(device)
-        #print(class_counts)
-        
+        class_counts += data.y.to(device).sum(dim=0).float()  # Move data.y to device
 
-    # Calculate class weights by taking the inverse of class frequency
+    # Avoid division by zero
+    class_counts += 1e-6  # Small constant to prevent zero division
+
+    # Compute class weights (inverse frequency)
     class_weights = 1.0 / (class_counts / class_counts.sum())
-    print(class_weights)
+
+    # Normalize weights to sum to num_classes
+    class_weights = class_weights * (num_classes / class_weights.sum())
+
+    print("Class Weights:", class_weights)
     return class_weights.to(device)
+
 
 def save_alpha_weights(alpha, filename):
     with open(filename, 'wb') as f:

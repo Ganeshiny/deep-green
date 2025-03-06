@@ -26,13 +26,13 @@ pdb_protBERT_dataset_valid = datasets['valid']
 print(f"Loaded datasets: Train={len(pdb_protBERT_dataset_train)}, Test={len(pdb_protBERT_dataset_test)}, Valid={len(pdb_protBERT_dataset_valid)}")
 
 # Constants
-BATCH_SIZE = 128
-EPOCHS = 200
-LEARNING_RATE = 0.001  
-MIN_THRESHOLD = 0.3
-MAX_THRESHOLD = 0.5
+BATCH_SIZE = 64
+EPOCHS = 300
+LEARNING_RATE = 0.0001  
+MIN_THRESHOLD = 0.5
+MAX_THRESHOLD = 0.8
 
-BEST_MODEL_PATH = f'/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/model_weights_adjusted_for_local_minima_converging.pth'
+BEST_MODEL_PATH = f'/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/model_weights_lower_lr_.pth'
 CLASS_WEIGHT_PATH = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/alpha_weights_s_train_1.pkl"
 PLOT_SAVE_PATH = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/results"
 
@@ -45,15 +45,11 @@ train_loader = DataLoader(pdb_protBERT_dataset_train, batch_size=BATCH_SIZE, shu
 test_loader = DataLoader(pdb_protBERT_dataset_test, batch_size=BATCH_SIZE, shuffle=False)
 valid_loader = DataLoader(pdb_protBERT_dataset_valid, batch_size=BATCH_SIZE, shuffle=False)
 
-#alpha = calculate_class_weights(pdb_protBERT_dataset_train, device)
-#save_alpha_weights(alpha, CLASS_WEIGHT_PATH)
+# Assume dataset is already available and loaded
+alpha = calculate_class_weights(pdb_protBERT_dataset_train, device)
+save_alpha_weights(alpha, CLASS_WEIGHT_PATH)
 alpha = load_alpha_weights(CLASS_WEIGHT_PATH)
 print(f"Alpha weights: {alpha}")
-
-# Replace inf with maximum finite value
-max_finite = alpha[alpha != float('inf')].max().item()
-alpha[alpha == float('inf')] = max_finite
-print(f"Cleaned Alpha weights: {alpha}")
 
 # Model Setup
 input_size = len(pdb_protBERT_dataset_train[0].x[0])
@@ -62,7 +58,7 @@ output_size = pdb_protBERT_dataset_train.num_classes
 model = GCN(input_size, hidden_sizes, output_size).to(device)
 
 # Criterion and Optimizer
-criterion = FocalLoss(alpha=alpha, gamma=2)
+criterion = FocalLoss(alpha=alpha, gamma=2, logits=True, reduction='mean').to(device)
 optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE, momentum=0.9, weight_decay=1e-4, nesterov=True)
 scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.001, epochs=EPOCHS, steps_per_epoch=len(train_loader))
 
