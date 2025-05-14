@@ -4,4 +4,4 @@ Deep Green (DG) is a automated function predicting (AFP) model trained on specia
 
 
 ## About
-The functional annotation of plant proteins lags far behind their animal counterparts, with <2% of _Viridiplantae_ sequences in UniProtKB supported by experimental evidence. Here, we present Deep Green (DG), a graph neural network trained exclusively on Viridiplantae structures that combines ProtBERT embeddings with GATv2 attention to achieve statistically significant improvements (ε < 0.1, ASO test) over state-of-the-art baselines. 
+DG is a GCN-GAT deep learning model that is trained on plant protein chain dataset which consists of exclusively experimentally determined structures. The model outputs Gene Ontology (GO) terms for each protein chain. 
