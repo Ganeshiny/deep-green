@@ -12,29 +12,78 @@ import glob
 import multiprocessing
 import csv
 
-def calculate_class_weights(dataset, device):
-    # Calculate the number of classes
+import numpy as np
+from sklearn.metrics import average_precision_score, f1_score
+
+def compute_metrics(y_true, y_pred):
+    metrics = {}
+
+    # Identify labels with positive samples
+    valid_labels = np.where(y_true.sum(axis=0) > 0)[0]
+    y_true_filtered = y_true[:, valid_labels]
+    y_pred_filtered = y_pred[:, valid_labels]
+
+    # AUPR
+    metrics['aupr_micro'] = average_precision_score(y_true_filtered, y_pred_filtered, average='micro')
+    metrics['aupr_macro'] = average_precision_score(y_true_filtered, y_pred_filtered, average='macro')
+    metrics['aupr_per_label'] = average_precision_score(y_true_filtered, y_pred_filtered, average=None)
+
+    # Fmax and threshold sweep
+    thresholds = np.linspace(0, 1, 101)
+    fmax_values = []
+    fmax_per_label = np.zeros(len(valid_labels))
+
+    for t in thresholds:
+        y_pred_bin = (y_pred_filtered >= t).astype(int)
+        micro_f1 = f1_score(y_true_filtered, y_pred_bin, average='micro', zero_division=0)
+        macro_f1 = f1_score(y_true_filtered, y_pred_bin, average='macro', zero_division=0)
+        fmax_values.append((t, micro_f1, macro_f1))
+
+    # Best micro/macro
+    best_micro = max(fmax_values, key=lambda x: x[1])
+    best_macro = max(fmax_values, key=lambda x: x[2])
+    metrics['fmax_micro'], metrics['best_t_micro'] = best_micro[1], best_micro[0]
+    metrics['fmax_macro'], metrics['best_t_macro'] = best_macro[1], best_macro[0]
+
+    # Per-label Fmax
+    for i in range(len(valid_labels)):
+        label_true = y_true_filtered[:, i]
+        label_pred = y_pred_filtered[:, i]
+        best_f1 = 0
+        for t in thresholds:
+            label_pred_bin = (label_pred >= t).astype(int)
+            f1 = f1_score(label_true, label_pred_bin, zero_division=0)
+            best_f1 = max(best_f1, f1)
+        fmax_per_label[i] = best_f1
+
+    metrics['fmax_per_label'] = fmax_per_label
+    metrics['thresholds'] = thresholds
+    metrics['fmax_values'] = fmax_values
+    metrics['valid_label_indices'] = valid_labels
+
+    return metrics, thresholds
+
+def calculate_class_weights(dataset, device, epsilon=1e-6):
+    # Get number of classes
     num_classes = dataset[0].y.size(1)
-    print("Number of classes:", num_classes)
 
-    # Initialize class counters
+    # Initialize counter
     class_counts = torch.zeros(num_classes, dtype=torch.float32, device=device)
+    total_samples = 0
 
-    # Count occurrences per class
     for data in dataset:
-        class_counts += data.y.to(device).sum(dim=0).float()  # Move data.y to device
+        y = data.y.to(device)
+        class_counts += y.sum(dim=0).float()
+        total_samples += y.size(0)
 
-    # Avoid division by zero
-    class_counts += 1e-6  # Small constant to prevent zero division
+    class_freq = class_counts / (total_samples + epsilon)
+    class_weights = 1.0 / (class_freq + epsilon)
 
-    # Compute class weights (inverse frequency)
-    class_weights = 1.0 / (class_counts / class_counts.sum())
+    class_weights = class_weights / class_weights.mean()
 
-    # Normalize weights to sum to num_classes
-    class_weights = class_weights * (num_classes / class_weights.sum())
-
-    print("Class Weights:", class_weights)
-    return class_weights.to(device)
+    print("Class counts:", class_counts)
+    print("Class weights:", class_weights)
+    return class_weights
 
 
 def save_alpha_weights(alpha, filename):

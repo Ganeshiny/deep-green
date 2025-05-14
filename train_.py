@@ -4,13 +4,14 @@ import pickle
 import json
 import matplotlib.pyplot as plt
 from torch_geometric.loader import DataLoader
-from model import GCN
+from model import HybridGCNGAT
 from focal_loss import FocalLoss
 from utils import load_alpha_weights
 from preprocessing.create_batch_dataset import PDB_Dataset
 from tqdm import tqdm  # FIX the import
 from utils import calculate_class_weights, save_alpha_weights, load_alpha_weights
 from torch.optim.lr_scheduler import CosineAnnealingLR
+import os
 
 
 # Load datasets from the pickle file
@@ -26,13 +27,12 @@ pdb_protBERT_dataset_valid = datasets['valid']
 print(f"Loaded datasets: Train={len(pdb_protBERT_dataset_train)}, Test={len(pdb_protBERT_dataset_test)}, Valid={len(pdb_protBERT_dataset_valid)}")
 
 # Constants
-BATCH_SIZE = 64
-EPOCHS = 300
+BATCH_SIZE = 128
+EPOCHS = 1000
 LEARNING_RATE = 0.0001  
-MIN_THRESHOLD = 0.5
-MAX_THRESHOLD = 0.8
+THRESHOLD = 0.50
 
-BEST_MODEL_PATH = f'/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/model_weights_lower_lr_.pth'
+BEST_MODEL_PATH = f'/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/WEIGHTS_2LAYERS.pth'
 CLASS_WEIGHT_PATH = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/alpha_weights_s_train_1.pkl"
 PLOT_SAVE_PATH = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/results"
 
@@ -45,22 +45,36 @@ train_loader = DataLoader(pdb_protBERT_dataset_train, batch_size=BATCH_SIZE, shu
 test_loader = DataLoader(pdb_protBERT_dataset_test, batch_size=BATCH_SIZE, shuffle=False)
 valid_loader = DataLoader(pdb_protBERT_dataset_valid, batch_size=BATCH_SIZE, shuffle=False)
 
-# Assume dataset is already available and loaded
-alpha = calculate_class_weights(pdb_protBERT_dataset_train, device)
-save_alpha_weights(alpha, CLASS_WEIGHT_PATH)
+#alpha = calculate_class_weights(pdb_protBERT_dataset_train, device)
+#save_alpha_weights(alpha, CLASS_WEIGHT_PATH)
 alpha = load_alpha_weights(CLASS_WEIGHT_PATH)
 print(f"Alpha weights: {alpha}")
 
+'''# Replace inf with maximum finite value
+max_finite = alpha[alpha != float('inf')].max().item()
+alpha[alpha == float('inf')] = max_finite
+print(f"Cleaned Alpha weights: {alpha}")
+'''
 # Model Setup
 input_size = len(pdb_protBERT_dataset_train[0].x[0])
-hidden_sizes = [1027, 912, 512, 256]
+hidden_sizes =[1024, 512] #hidden_sizes =[512, 256, 128, 64] - This is earlier sizes for WEIGHT_4LAYERS.pth
 output_size = pdb_protBERT_dataset_train.num_classes
-model = GCN(input_size, hidden_sizes, output_size).to(device)
+
+model = HybridGCNGAT(
+    input_size = input_size,         
+    hidden_sizes= hidden_sizes,
+    output_size=output_size,         
+    gcn_layers=1, # this was 2 for WEGITH_4LAYERS.pth    
+    gat_layers=1, # this was 2 for WEGITH_4LAYERS.pth               
+    dropout_rate=0.3
+).to(device)
+
 
 # Criterion and Optimizer
-criterion = FocalLoss(alpha=alpha, gamma=2, logits=True, reduction='mean').to(device)
-optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE, momentum=0.9, weight_decay=1e-4, nesterov=True)
-scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.001, epochs=EPOCHS, steps_per_epoch=len(train_loader))
+criterion = FocalLoss(alpha=alpha, gamma=1)
+optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.001)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=10)
+
 
 # Tracking Metrics
 train_losses, test_losses, valid_losses = [], [], []
@@ -71,7 +85,7 @@ best_valid_acc = 0
 def train():
     model.train()
     total_loss, correct, total = 0, 0, 0
-    
+
     with tqdm(train_loader, desc="Training", unit="batch", leave=True) as pbar:
         for data in pbar:
             data = data.to(device)
@@ -81,15 +95,10 @@ def train():
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-            
-            # Adaptive threshold
-            mean_prob = torch.mean(torch.sigmoid(out))
-            threshold = max(MIN_THRESHOLD, min(MAX_THRESHOLD, mean_prob))  
-            pred = torch.sigmoid(out) > threshold
+            pred = torch.sigmoid(out) > THRESHOLD
             correct += (pred == data.y).sum().item()
             total += np.prod(data.y.shape)
 
-            # Update tqdm progress bar with loss info
             pbar.set_postfix(loss=loss.item())
 
     return total_loss / len(train_loader), correct / total
@@ -98,7 +107,7 @@ def train():
 def evaluate(loader):
     model.eval()
     total_loss, correct, total = 0, 0, 0
-    
+
     with torch.no_grad():
         with tqdm(loader, desc="Evaluating", unit="batch", leave=True) as pbar:
             for data in pbar:
@@ -108,9 +117,7 @@ def evaluate(loader):
                 total_loss += loss.item()
 
                 # Adaptive threshold
-                mean_prob = torch.mean(torch.sigmoid(out))
-                threshold = max(MIN_THRESHOLD, min(MAX_THRESHOLD, mean_prob))  
-                pred = torch.sigmoid(out) > threshold
+                pred = torch.sigmoid(out) > THRESHOLD
                 correct += (pred == data.y).sum().item()
                 total += np.prod(data.y.shape)
 
@@ -145,7 +152,8 @@ for epoch in range(1, EPOCHS + 1):
 
     print(f"Epoch {epoch:03d}: Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}, Valid Acc: {valid_acc:.4f}")
     print(f"Train Loss: {train_loss:.4f}, Test Loss: {test_loss:.4f}, Valid Loss: {valid_loss:.4f}")
-
+# Ensure plot save directory exists
+os.makedirs(PLOT_SAVE_PATH, exist_ok=True)
 # **Plot Losses**
 plt.figure(figsize=(12, 5))
 plt.subplot(1, 2, 1)
