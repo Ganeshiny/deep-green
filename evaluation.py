@@ -20,7 +20,7 @@ output_dir = os.path.join(script_dir, "PFP_evaluation_metrics")
 os.makedirs(output_dir, exist_ok=True)
 
 # Load datasets from the pickle file
-dataset_save_path = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachinthadata/datasets.pkl"
+dataset_save_path = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachinthadata/BPO_datasets.pkl"
 
 with open(dataset_save_path, 'rb') as f:
     datasets = pickle.load(f)
@@ -62,7 +62,7 @@ def save_combined_plot(y_true, y_pred, thresholds, metrics, filename):
     plt.figure(figsize=(18, 6))
     
     # 1. Precision-Recall Curve
-    plt.subplot(1, 3, 1)
+    plt.subplot(1, 2, 1)
     precision, recall, _ = precision_recall_curve(y_true.ravel(), y_pred.ravel())
     plt.plot(recall, precision, label=f'Micro AUPR: {metrics["aupr_micro"]:.3f}', linewidth=2)
     plt.xlabel('Recall', fontsize=12)
@@ -71,22 +71,22 @@ def save_combined_plot(y_true, y_pred, thresholds, metrics, filename):
     plt.legend(fontsize=10)
     plt.grid(True, alpha=0.3)
     
-    # 2. Fmax vs Threshold
-    plt.subplot(1, 3, 2)
-    fmax_values = [f1_score(y_true, (y_pred > t).astype(int), average="micro") for t in thresholds]
-    plt.plot(thresholds, fmax_values, label="Micro Fmax", color="blue", linewidth=2)
-    fmax_values_macro = [f1_score(y_true, (y_pred > t).astype(int), average="macro") for t in thresholds]
-    plt.plot(thresholds, fmax_values_macro, label="Macro Fmax", color="red", linewidth=2)
-    plt.axvline(metrics['best_t_micro'], color="blue", linestyle="--", label=f'Best Micro: {metrics["best_t_micro"]:.2f}')
-    plt.axvline(metrics['best_t_macro'], color="red", linestyle="--", label=f'Best Macro: {metrics["best_t_macro"]:.2f}')
-    plt.xlabel("Threshold", fontsize=12)
-    plt.ylabel("F1 Score", fontsize=12)
-    plt.title("Fmax vs Threshold", fontsize=14)
-    plt.legend(fontsize=10)
-    plt.grid(True, alpha=0.3)
+    '''    # 2. Fmax vs Threshold
+        plt.subplot(1, 3, 2)
+        fmax_values = [f1_score(y_true, (y_pred > t).astype(int), average="micro") for t in thresholds]
+        plt.plot(thresholds, fmax_values, label="Micro Fmax", color="blue", linewidth=2)
+        fmax_values_macro = [f1_score(y_true, (y_pred > t).astype(int), average="macro") for t in thresholds]
+        plt.plot(thresholds, fmax_values_macro, label="Macro Fmax", color="red", linewidth=2)
+        plt.axvline(metrics['best_t_micro'], color="blue", linestyle="--", label=f'Best Micro: {metrics["best_t_micro"]:.2f}')
+        plt.axvline(metrics['best_t_macro'], color="red", linestyle="--", label=f'Best Macro: {metrics["best_t_macro"]:.2f}')
+        plt.xlabel("Threshold", fontsize=12)
+        plt.ylabel("F1 Score", fontsize=12)
+        plt.title("Fmax vs Threshold", fontsize=14)
+        plt.legend(fontsize=10)
+        plt.grid(True, alpha=0.3)'''
     
     # 3. Violin plots
-    plt.subplot(1, 3, 3)
+    plt.subplot(1, 2, 2)
     valid_aupr = ~np.isnan(metrics['aupr_per_label'])
     valid_fmax = ~np.isnan(metrics['fmax_per_label'])
     

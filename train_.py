@@ -15,7 +15,7 @@ import os
 
 
 # Load datasets from the pickle file
-dataset_save_path = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachinthadata/datasets.pkl"
+dataset_save_path = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachinthadata/BPO_datasets.pkl"
 
 with open(dataset_save_path, 'rb') as f:
     datasets = pickle.load(f)

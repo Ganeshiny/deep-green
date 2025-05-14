@@ -16,40 +16,42 @@ with open('/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predict
 y_true = np.array(y_true)
 y_pred = np.array(y_pred)
 
-def save_combined_plot(metrics, y_true, y_pred, filename):
-    """Save the combined evaluation plot"""
+def save_combined_plot(y_true, y_pred, thresholds, metrics, filename):
+    """Save enhanced combined evaluation plot"""
     plt.figure(figsize=(18, 6))
     
     # 1. Precision-Recall Curve
-    plt.subplot(1, 3, 1)
+    plt.subplot(1, 2, 1)
     precision, recall, _ = precision_recall_curve(y_true.ravel(), y_pred.ravel())
-    plt.plot(recall, precision, label=f'Micro AUPR: {metrics["aupr_micro"]:.3f}')
+    plt.plot(recall, precision, label=f'Micro AUPR: {metrics["aupr_micro"]:.3f}', linewidth=2)
     plt.xlabel('Recall', fontsize=12)
     plt.ylabel('Precision', fontsize=12)
     plt.title('Average Precision-Recall Curve', fontsize=14)
     plt.legend(fontsize=10)
     plt.grid(True, alpha=0.3)
     
-    # 2. Fmax vs Threshold
-    plt.subplot(1, 3, 2)
-    thresholds = [t[0] for t in metrics['fmax_values']]
-    plt.plot(thresholds, [t[1] for t in metrics['fmax_values']], label='Micro F1', linewidth=2)
-    plt.plot(thresholds, [t[2] for t in metrics['fmax_values']], label='Macro F1', linewidth=2)
-    plt.axvline(metrics['fmax_micro'], color='blue', linestyle='--', label=f'Best Micro: {metrics["fmax_micro"]:.2f}')
-    plt.axvline(metrics['fmax_macro'], color='orange', linestyle='--', label=f'Best Macro: {metrics["fmax_macro"]:.2f}')
-    plt.xlabel('Threshold', fontsize=12)
-    plt.ylabel('F1 Score', fontsize=12)
-    plt.title('Fmax vs Threshold', fontsize=14)
-    plt.legend(fontsize=10)
-    plt.grid(True, alpha=0.3)
+    '''    # 2. Fmax vs Threshold
+        plt.subplot(1, 3, 2)
+        fmax_values = [f1_score(y_true, (y_pred > t).astype(int), average="micro") for t in thresholds]
+        plt.plot(thresholds, fmax_values, label="Micro Fmax", color="blue", linewidth=2)
+        fmax_values_macro = [f1_score(y_true, (y_pred > t).astype(int), average="macro") for t in thresholds]
+        plt.plot(thresholds, fmax_values_macro, label="Macro Fmax", color="red", linewidth=2)
+        plt.axvline(metrics['best_t_micro'], color="blue", linestyle="--", label=f'Best Micro: {metrics["best_t_micro"]:.2f}')
+        plt.axvline(metrics['best_t_macro'], color="red", linestyle="--", label=f'Best Macro: {metrics["best_t_macro"]:.2f}')
+        plt.xlabel("Threshold", fontsize=12)
+        plt.ylabel("F1 Score", fontsize=12)
+        plt.title("Fmax vs Threshold", fontsize=14)
+        plt.legend(fontsize=10)
+        plt.grid(True, alpha=0.3)'''
     
     # 3. Violin plots
-    plt.subplot(1, 3, 3)
+    plt.subplot(1, 2, 2)
     valid_aupr = ~np.isnan(metrics['aupr_per_label'])
     valid_fmax = ~np.isnan(metrics['fmax_per_label'])
     
     violin_parts = plt.violinplot(
-        [metrics['aupr_per_label'][valid_aupr], metrics['fmax_per_label'][valid_fmax]],
+        [metrics['aupr_per_label'][valid_aupr], 
+        metrics['fmax_per_label'][valid_fmax]], 
         positions=[1, 2],
         showmeans=True,
         showmedians=True
@@ -67,9 +69,12 @@ def save_combined_plot(metrics, y_true, y_pred, filename):
     plt.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, filename), dpi=300, bbox_inches='tight')
+    output_path = os.path.join(output_dir, filename)
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
+    print(f"Saved combined plot to: {output_path}")
 
+    
 def save_violin_plot(metrics, filename):
     """Save enhanced violin plot"""
     valid_aupr = ~np.isnan(metrics['aupr_per_label'])

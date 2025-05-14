@@ -189,7 +189,7 @@ class PDB_Dataset(Dataset):
         return self._load_data(self.pdb_split_list[idx])
 
 
-'''# Device
+# Device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print('Using device:', device)
 
@@ -202,14 +202,14 @@ train_file = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-pred
 valid_file = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachinthadata/_valid.txt"
 
 torch.manual_seed(12345)
-pdb_protBERT_dataset_test = PDB_Dataset(root=root, annot_file=annot_file, num_shards=num_shards, selected_ontology="biological_process", transform=None, pre_transform=None, model="protBERT", pdb_split_set_file=test_file, dataset_type = "test")
-pdb_protBERT_dataset_train = PDB_Dataset(root=root, annot_file=annot_file, num_shards=num_shards, selected_ontology="biological_process", transform=None, pre_transform=None, model ="protBERT", pdb_split_set_file=train_file, dataset_type = "train")
-pdb_protBERT_dataset_valid = PDB_Dataset(root=root, annot_file=annot_file, num_shards=num_shards, selected_ontology="biological_process", transform=None, pre_transform=None, model="protBERT",  pdb_split_set_file=valid_file, dataset_type = "valid")
+pdb_protBERT_dataset_test = PDB_Dataset(root=root, annot_file=annot_file, num_shards=num_shards, selected_ontology="cellular_component", transform=None, pre_transform=None, model="protBERT", pdb_split_set_file=test_file, dataset_type = "test")
+pdb_protBERT_dataset_train = PDB_Dataset(root=root, annot_file=annot_file, num_shards=num_shards, selected_ontology="cellular_component", transform=None, pre_transform=None, model ="protBERT", pdb_split_set_file=train_file, dataset_type = "train")
+pdb_protBERT_dataset_valid = PDB_Dataset(root=root, annot_file=annot_file, num_shards=num_shards, selected_ontology="cellular_component", transform=None, pre_transform=None, model="protBERT",  pdb_split_set_file=valid_file, dataset_type = "valid")
 
 print(f"Train: {len(pdb_protBERT_dataset_train)}, Test: {len(pdb_protBERT_dataset_test)}, Valid: {len(pdb_protBERT_dataset_valid)}")
 print(len(pdb_protBERT_dataset_train), len(pdb_protBERT_dataset_valid[0].x[0]), pdb_protBERT_dataset_train.num_classes, pdb_protBERT_dataset_valid.num_classes)
 # Paths to save the datasets
-dataset_save_path = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachinthadata/datasets.pkl"
+dataset_save_path = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachinthadata/CCO_datasets.pkl"
 
 # Save datasets to a pickle file
 with open(dataset_save_path, 'wb') as f:
@@ -219,4 +219,4 @@ with open(dataset_save_path, 'wb') as f:
         'valid': pdb_protBERT_dataset_valid
     }, f)
 
-print(f"Datasets saved to {dataset_save_path}")'''
+print(f"Datasets saved to {dataset_save_path}")
