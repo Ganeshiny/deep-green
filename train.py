@@ -9,7 +9,7 @@ from utils import calculate_class_weights, save_alpha_weights, load_alpha_weight
 import pickle
 import json
 
-# Constants
+
 THRESHOLD = 0.5
 BATCH_SIZE = 32
 EPOCHS = 500
@@ -19,11 +19,10 @@ PATH = "model_and_weight_files/model.pth"
 CLASS_WEIGHT_PATH = "model_and_weight_files/alpha_weights.pkl"
 MODEL_INFO_PATH = "model_and_weight_files/model_info_2_layers.json"  # Path to save model info
 
-# Device
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print('Using device:', device)
 
-# Dataset Setup
 root = 'preprocessing/data/structure_files/tmp_cmap_files'
 annot_file = 'preprocessing/data/pdb2go.tsv'
 num_shards = 20
@@ -105,18 +104,16 @@ def test(loader):
 best_test_acc = 0
 
 for epoch in range(1, EPOCHS + 1):
-    # Train the model for one epoch
     train()
     
-    # Evaluate the model
+
     train_acc = test(train_loader)
     test_acc = test(test_loader)
     
-    # Scheduler step based on test accuracy (or loss)
+
     scheduler.step(1 - test_acc)  # For accuracy, pass `1 - test_acc` (higher is better)
     # If monitoring test loss instead, pass the actual test loss
 
-    # Save the model if test accuracy improves
     if test_acc > best_test_acc:
         best_test_acc = test_acc
         torch.save(model.state_dict(), BEST_MODEL_PATH)
