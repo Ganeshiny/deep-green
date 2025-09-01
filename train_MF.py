@@ -15,7 +15,7 @@ import os
 
 
 # Load datasets from the pickle file
-dataset_save_path = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachinthadata/BPO_datasets.pkl"
+dataset_save_path = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachinthadata/MFO_datasets.pkl"
 
 with open(dataset_save_path, 'rb') as f:
     datasets = pickle.load(f)
@@ -32,9 +32,9 @@ EPOCHS = 1000
 LEARNING_RATE = 0.0001  
 THRESHOLD = 0.50
 
-BEST_MODEL_PATH = f'/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/WEIGHTS_2LAYERS.pth'
-CLASS_WEIGHT_PATH = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/alpha_weights_s_train_1.pkl"
-PLOT_SAVE_PATH = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/results"
+BEST_MODEL_PATH = f'/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/WEIGHTS_2LAYERS_mfo.pth'
+CLASS_WEIGHT_PATH = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/alpha_MFO.pkl"
+PLOT_SAVE_PATH = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/results_MFO"
 
 # Device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -45,8 +45,8 @@ train_loader = DataLoader(pdb_protBERT_dataset_train, batch_size=BATCH_SIZE, shu
 test_loader = DataLoader(pdb_protBERT_dataset_test, batch_size=BATCH_SIZE, shuffle=False)
 valid_loader = DataLoader(pdb_protBERT_dataset_valid, batch_size=BATCH_SIZE, shuffle=False)
 
-#alpha = calculate_class_weights(pdb_protBERT_dataset_train, device)
-#save_alpha_weights(alpha, CLASS_WEIGHT_PATH)
+alpha = calculate_class_weights(pdb_protBERT_dataset_train, device)
+save_alpha_weights(alpha, CLASS_WEIGHT_PATH)
 alpha = load_alpha_weights(CLASS_WEIGHT_PATH)
 print(f"Alpha weights: {alpha}")
 

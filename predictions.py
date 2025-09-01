@@ -7,12 +7,13 @@ import glob
 import csv
 from transformers import BertTokenizer, BertModel
 import scipy.sparse as sp
-from model import GCN
+from model import HybridGCNGAT
 from utils import write_seqs_from_cifdir, read_seqs_file, write_annot_npz
 import gc
 import json
 import pickle
-BASE_PATH = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor"
+from preprocessing.create_batch_dataset import PDB_Dataset
+#BASE_PATH = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor"
 
 # Set device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -24,7 +25,7 @@ protbert_model = BertModel.from_pretrained('Rostlab/prot_bert_bfd')
 protbert_model.gradient_checkpointing_enable()  # Helps with memory usage
 protbert_model.to(device).eval()
 
-ontology = "biological_process"
+ontology = ["biological_process", "cellular_component", "molecular_function"]
 
 # Dictionaries for residue properties
 HYDROPHOBICITY = {
@@ -216,11 +217,11 @@ def run_predictions(struct_dir, model, output_file, gonames, goids, batch_size=8
 # Main script
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('-struc_dir', type=str, default=f'{BASE_PATH}/examples/structure_files', help='Directory containing cif files')
-    parser.add_argument('-seqs', type=str, default=f'{BASE_PATH}/examples/predictions_seqs.fasta', help='FASTA file containing sequences')
-    parser.add_argument('-model_path', type=str, default=f"/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/model_weights_newnew_3layers.pth", help='Path to the trained model weights')
-    parser.add_argument('-output', type=str, default=f'{BASE_PATH}/examples/predictions_new.csv', help='Output CSV file for predictions')
-    parser.add_argument('-annot_dict', type=str, default=f'{BASE_PATH}/preprocessing/data/annot_dict.pkl', help='Path to the annotation dictionary')
+    parser.add_argument('-struc_dir', type=str, default=f'./protein-go-predictor/examples/structure_files', help='Directory containing cif files')
+    parser.add_argument('-seqs', type=str, default=f'./protein-go-predictor/examples/predictions_seqs.fasta', help='FASTA file containing sequences')
+    parser.add_argument('-model_path', type=str, default=f"./protein-go-predictor/model_and_weight_files/WEIGHTS_2LAYERS_bpo.pth", help='Path to the trained model weights')
+    parser.add_argument('-output', type=str, default=f'./protein-go-predictor/examples/predictions_bpo.csv', help='Output CSV file for predictions')
+    parser.add_argument('-annot_dict', type=str, default=f'./protein-go-predictor/preprocessing/data/annot_dict.pkl', help='Path to the annotation dictionary')
     args = parser.parse_args()
     annot_dict = args.annot_dict
 
@@ -243,25 +244,34 @@ if __name__ == '__main__':
         input_size = model_info['input_size']
         hidden_sizes = model_info['hidden_sizes']
         output_size = model_info['output_size']'''
-
-    dataset_save_path = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachinthadata/datasets.pkl"
+    #Change the paths 
+    dataset_save_path = "./protein-go-predictor/preprocessing/data/sachinthadata/BPO_datasets.pkl"
 
     with open(dataset_save_path, 'rb') as f:
         datasets = pickle.load(f)
 
     pdb_protBERT_dataset_train = datasets['train']
     pdb_protBERT_dataset_test = datasets['test']
-    pdb_protBERT_dataset_valid = datasets['valid']
+    pdb_protBERT_dataset_valid = datasets['valid']  
+
+    print(pdb_protBERT_dataset_train[0])
 
     print(f"Loaded datasets: Train={pdb_protBERT_dataset_train[0].x[0]}, Test={pdb_protBERT_dataset_test[0].x[0]}, Valid={pdb_protBERT_dataset_valid[0].x[0]}")
     # Model Setup
     input_size = len(pdb_protBERT_dataset_train[0].x[0])
-    hidden_sizes = [1027, 912, 512]
+    hidden_sizes = [1024, 512]
     output_size = pdb_protBERT_dataset_train.num_classes
     # Step 2: Initialize the GCN model using the loaded parameters
     # Assuming the GCN constructor accepts input_size, hidden_sizes, and output_size
-    model = GCN(input_size=input_size, hidden_sizes=hidden_sizes, output_size=output_size)
-
+    model = HybridGCNGAT(
+        input_size = input_size,         
+        hidden_sizes= hidden_sizes,
+        output_size=output_size,         
+        gcn_layers=1,            
+        gat_layers=1,            
+        dropout_rate=0.3
+    ).to(device)
+    
     # Step 3: Load the saved state dictionary into the GCN model
     model.load_state_dict(torch.load(args.model_path))
 
@@ -274,7 +284,7 @@ if __name__ == '__main__':
     prot2annot = data['prot2annot']
     goterms = data['goterms']['biological_process']
     gonames = data['gonames']['biological_process']
-    #print(gonames[ontology])
+    #print(gonames[ontology[0]])
     prot_list = data['prot_list']
 
     # Run predictions and save to CSV

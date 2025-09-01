@@ -20,7 +20,7 @@ output_dir = os.path.join(script_dir, "PFP_evaluation_metrics")
 os.makedirs(output_dir, exist_ok=True)
 
 # Load datasets from the pickle file
-dataset_save_path = "/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/sachinthadata/BPO_datasets.pkl"
+dataset_save_path = "./protein-go-predictor/preprocessing/data/sachinthadata/MFO_datasets.pkl"
 
 with open(dataset_save_path, 'rb') as f:
     datasets = pickle.load(f)
@@ -31,7 +31,7 @@ pdb_protBERT_dataset_valid = datasets['valid']
 
 # Model Setup
 input_size = len(pdb_protBERT_dataset_train[0].x[0])
-hidden_sizes =[512, 256, 128, 64]
+hidden_sizes =[1024, 512]
 output_size = pdb_protBERT_dataset_train.num_classes
 
 
@@ -192,8 +192,8 @@ def load_model(model_path, model_info_path, device):
         input_size = input_size,         
         hidden_sizes= hidden_sizes,
         output_size=output_size,         
-        gcn_layers=2,            
-        gat_layers=2,            
+        gcn_layers=1,            
+        gat_layers=1,            
         dropout_rate=0.3
     ).to(device)
 
@@ -204,15 +204,15 @@ def load_model(model_path, model_info_path, device):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_path', type=str, default='/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/model_and_weight_files/WEIGHTS_4LAYERS.pth')
-    parser.add_argument('--annot_dict', type=str, default='/home/hpc_users/2019s17273@stu.cmb.ac.lk/ganeshiny/protein-go-predictor/preprocessing/data/annot_dict.pkl')
+    parser.add_argument('--model_path', type=str, default='./protein-go-predictor/model_and_weight_files/WEIGHTS_2LAYERS_mfo.pth')
+    parser.add_argument('--annot_dict', type=str, default='./protein-go-predictor/preprocessing/data/annot_dict.pkl')
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size for evaluation')
     args = parser.parse_args()
 
     # Device Setup
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     input_size = len(pdb_protBERT_dataset_train[0].x[0])
-    hidden_sizes =[512, 256, 128, 64]
+    hidden_sizes =[1024, 512]
     output_size = pdb_protBERT_dataset_train.num_classes
 
     # Initialize and load model
@@ -220,8 +220,8 @@ def main():
     input_size = input_size,         
     hidden_sizes= hidden_sizes,
     output_size=output_size,         
-    gcn_layers=2,            
-    gat_layers=2,            
+    gcn_layers=1,            
+    gat_layers=1,            
     dropout_rate=0.3
     ).to(device)    
 
@@ -238,7 +238,6 @@ def main():
     #print(f"AUPR per label: {metrics['aupr_per_label']:.4f}")
     print(f"Micro Fmax: {metrics['fmax_micro']:.4f} (Best T: {metrics['best_t_micro']:.2f})")
     print(f"Macro Fmax: {metrics['fmax_macro']:.4f} (Best T: {metrics['best_t_macro']:.2f})")
-
     # Find tuple for threshold 0.5 (or nearest if not exact)
     at_05 = min(metrics['fmax_values'], key=lambda x: abs(x[0] - 0.5))
     micro_at_05 = at_05[1]
