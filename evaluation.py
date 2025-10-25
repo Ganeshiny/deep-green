@@ -56,6 +56,11 @@ def evaluate_model(model, loader, device):
 
     metrics, thresholds = compute_metrics(all_targets, all_preds)
     return metrics, thresholds, all_targets, all_preds
+    
+def write_npz(y_true, y_pred, output_savepath): #TODO
+    with open(output_savepath, 'r') as f:
+        # write the y_true, y_preds 
+    return 
 
 def save_combined_plot(y_true, y_pred, thresholds, metrics, filename):
     """Save enhanced combined evaluation plot"""
@@ -230,7 +235,7 @@ def main():
 
     # Evaluate Model
     metrics, thresholds, y_true, y_pred = evaluate_model(model, test_loader, device)
-
+    # Write the npz file here, call the function:  write_npz
     # Print Results
     print("\n**Evaluation Results:**")
     print(f"Micro AUPR: {metrics['aupr_micro']:.4f}")
